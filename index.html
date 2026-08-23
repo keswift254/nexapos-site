@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexaPOS - Offline-First Point of Sale</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f7f7fb;
+    --card: #ffffff;
+    --ink: #14141f;
+    --ink-soft: #55556b;
+    --border: #e6e6f0;
+    --accent: #4f46e5;
+    --accent-dark: #3730a3;
+    --accent-soft: #eef2ff;
+    --ok-bg: #dcfce7;
+    --ok-ink: #166534;
+    --err-bg: #fee2e2;
+    --err-ink: #991b1b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  header.site {
+    padding: 20px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+  header.site .wrap { display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  nav.site a { color: var(--ink-soft); text-decoration: none; font-size: 14px; margin-left: 28px; }
+  nav.site a:hover { color: var(--ink); }
+
+  .hero { padding: 88px 0 64px; text-align: center; }
+  .hero h1 { font-size: 44px; line-height: 1.15; margin: 0 0 16px; letter-spacing: -0.02em; }
+  .hero h1 span { color: var(--accent); }
+  .hero p { font-size: 18px; color: var(--ink-soft); max-width: 560px; margin: 0 auto 32px; }
+  .hero .cta { display: inline-flex; gap: 12px; }
+  .btn {
+    display: inline-block;
+    padding: 13px 26px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-dark); }
+  .btn.ghost { background: var(--card); color: var(--ink); border-color: var(--border); }
+  .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  .features { padding: 40px 0 80px; }
+  .features .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 20px;
+  }
+  .feature {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .feature .icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    margin-bottom: 14px;
+  }
+  .feature h3 { margin: 0 0 8px; font-size: 16px; }
+  .feature p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+
+  section.panel { padding: 20px 0 90px; }
+  .panel-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 40px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .panel-card h2 { margin: 0 0 6px; font-size: 24px; }
+  .panel-card p.sub { margin: 0 0 28px; color: var(--ink-soft); font-size: 14px; }
+
+  label { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 5px; font-weight: 600; }
+  input {
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    background: #fff;
+    color: var(--ink);
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.submit {
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.submit:disabled { opacity: 0.55; cursor: default; }
+  .msg { font-size: 13px; margin-top: 14px; padding: 11px 13px; border-radius: 9px; display: none; }
+  .msg.show { display: block; }
+  .msg.err { background: var(--err-bg); color: var(--err-ink); }
+
+  .downloads { display: none; }
+  .downloads.show { display: block; }
+  .downloads .ok-banner {
+    background: var(--ok-bg); color: var(--ok-ink);
+    padding: 12px 14px; border-radius: 9px; font-size: 14px; margin-bottom: 20px;
+  }
+  .download-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px;
+  }
+  .download-row .plat { display: flex; align-items: center; gap: 12px; }
+  .download-row .plat .glyph { font-size: 22px; }
+  .download-row .plat .name { font-weight: 600; font-size: 14px; }
+  .download-row .plat .note { font-size: 12px; color: var(--ink-soft); }
+  .next-steps {
+    margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--ink-soft);
+  }
+  .next-steps b { color: var(--ink); }
+
+  footer { padding: 40px 0; text-align: center; color: var(--ink-soft); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> NexaPOS</div>
+    <nav class="site">
+      <a href="#features">Features</a>
+      <a href="#get-started">Get started</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Point of sale that <span>never waits</span><br>for the internet.</h1>
+    <p>NexaPOS runs fully offline on the counter, syncs across every device in the shop when it can, and takes card and mobile money payments through Paystack when it's online.</p>
+    <div class="cta">
+      <a href="#get-started" class="btn primary">Get NexaPOS</a>
+      <a href="#features" class="btn ghost">See what it does</a>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="wrap">
+    <div class="grid">
+      <div class="feature">
+        <div class="icon">📶</div>
+        <h3>Offline-first</h3>
+        <p>Ring up sales, manage stock, and print receipts with zero internet connection. Nothing about checkout ever waits on a network call.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🔄</div>
+        <h3>Multi-device sync</h3>
+        <p>Run it on the counter PC and a couple of phones at once. Every device shares the same products, stock, and sales the moment they're back online.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">💳</div>
+        <h3>Card &amp; mobile money</h3>
+        <p>Accept Paystack payments - cards and mobile money - settling straight to your own bank account or till number.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🖨️</div>
+        <h3>Thermal receipt printing</h3>
+        <p>Prints straight to any network thermal printer, 58mm or 80mm, no extra drivers to install.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">📊</div>
+        <h3>Stock &amp; reports</h3>
+        <p>Live stock counts, low-stock alerts, and sales/expense reports built in from day one.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🖥️</div>
+        <h3>Windows &amp; Android</h3>
+        <p>One app, same data, whichever device is closer to the till.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="get-started">
+  <div class="wrap">
+    <div class="panel-card">
+
+      <div id="formView">
+        <h2>Get NexaPOS</h2>
+        <p class="sub">Tell us where to reach you and grab the download - no payment needed yet. You'll get a license key from us separately to unlock the app.</p>
+        <form id="regForm">
+          <label for="name">Your name</label>
+          <input id="name" required>
+          <label for="email">Email</label>
+          <input id="email" type="email" required>
+          <label for="business">Business name (optional)</label>
+          <input id="business">
+          <label for="phone">Phone (optional)</label>
+          <input id="phone">
+          <button class="submit" type="submit" id="submitBtn">Continue to download</button>
+        </form>
+        <div class="msg err" id="formMsg"></div>
+      </div>
+
+      <div class="downloads" id="downloadsView">
+        <div class="ok-banner">You're registered - grab the download below.</div>
+        <div class="download-row">
+          <div class="plat">
+            <div class="glyph">🖥️</div>
+            <div>
+              <div class="name">Windows</div>
+              <div class="note">Windows 10/11, 64-bit</div>
+            </div>
+          </div>
+          <a class="btn primary" id="windowsLink" href="downloads/NexaPOS-Windows.zip" download>Download</a>
+        </div>
+        <div class="download-row">
+          <div class="plat">
+            <div class="glyph">📱</div>
+            <div>
+              <div class="name">Android</div>
+              <div class="note">Android 8.0+</div>
+            </div>
+          </div>
+          <a class="btn primary" id="androidLink" href="downloads/NexaPOS.apk" download>Download</a>
+        </div>
+        <div class="next-steps">
+          <b>Next:</b> install the app, then reach out to us with your name/email to arrange payment. We'll generate your license key and send it over - enter it the first time the app opens and you're done, no internet needed after that.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<footer>
+  &copy; 2026 NexaPOS
+</footer>
+
+<script>
+const LICENSE_SERVER = 'https://nexapos-license-1.onrender.com/index.php';
+
+document.getElementById('regForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const msg = document.getElementById('formMsg');
+  msg.className = 'msg err';
+  btn.disabled = true;
+  btn.textContent = 'Please wait...';
+
+  try {
+    const res = await fetch(LICENSE_SERVER + '?action=register_lead', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: document.getElementById('name').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        business_name: document.getElementById('business').value.trim(),
+        phone: document.getElementById('phone').value.trim(),
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      msg.textContent = data.message || 'Something went wrong - try again.';
+      msg.className = 'msg err show';
+      btn.disabled = false;
+      btn.textContent = 'Continue to download';
+      return;
+    }
+    document.getElementById('formView').style.display = 'none';
+    document.getElementById('downloadsView').className = 'downloads show';
+  } catch (err) {
+    msg.textContent = 'Could not reach the server - check your connection and try again.';
+    msg.className = 'msg err show';
+    btn.disabled = false;
+    btn.textContent = 'Continue to download';
+  }
+});
+</script>
+
+</body>
+</html>
