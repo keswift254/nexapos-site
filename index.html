@@ -242,8 +242,9 @@
           <input id="email" type="email" required>
           <label for="business">Business name (optional)</label>
           <input id="business">
-          <label for="phone">Phone (optional)</label>
-          <input id="phone">
+          <label for="phone">Phone</label>
+          <input id="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="07XXXXXXXX"
+                 pattern="0[17][0-9]{8}" title="Starts with 07 or 01, 10 digits total" required>
           <button class="submit" type="submit" id="submitBtn">Continue to download</button>
         </form>
         <div class="msg err" id="formMsg"></div>
