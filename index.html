@@ -125,6 +125,8 @@
   .msg.show { display: block; }
   .msg.err { background: var(--err-bg); color: var(--err-ink); }
 
+  section.panel { display: none; }
+  section.panel.show { display: block; }
   .downloads { display: none; }
   .downloads.show { display: block; }
   .downloads .ok-banner {
@@ -181,7 +183,7 @@
 <section class="hero">
   <div class="wrap">
     <h1>Point of sale that <span>never waits</span><br>for the internet.</h1>
-    <p>NexaPOS runs fully offline on the counter, syncs across every device in the shop when it can, and takes card and mobile money payments through Paystack when it's online.</p>
+    <p>NexaPOS runs fully offline on the counter, syncs across every device in the shop when it can, and takes card and mobile money payments when it's online.</p>
     <div class="cta">
       <a href="#get-started" class="btn primary">Get NexaPOS</a>
       <a href="#features" class="btn ghost">See what it does</a>
@@ -288,6 +290,16 @@
 
 <script>
 const LICENSE_SERVER = 'https://nexapos-license-1.onrender.com/index.php';
+
+// The registration form stays hidden until someone actually asks for
+// it (either "Get NexaPOS" in the hero or "Get started" in the nav,
+// both point here) - showing it unprompted on scroll-past made the
+// page feel like it was pushing the form on every visitor.
+document.querySelectorAll('a[href="#get-started"]').forEach((link) => {
+  link.addEventListener('click', () => {
+    document.getElementById('get-started').classList.add('show');
+  });
+});
 
 document.getElementById('regForm').addEventListener('submit', async (e) => {
   e.preventDefault();
