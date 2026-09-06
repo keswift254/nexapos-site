@@ -1,0 +1,25 @@
+{
+  "version": "1.0.12",
+  "build_number": 13,
+  "status": "candidate",
+  "built_on": "2026-09-06",
+  "app_commit": "2ca140c",
+  "required_platform_commit": "5a5dd21",
+  "release_notes": "Cashier update access, administrator verification for shop changes, encrypted recovery backups, and Inventory POS migration.",
+  "publication_gate": "Deploy and verify the matching platform changes, then smoke-test the candidate on a disposable shop before announcing the update. Validate the legacy migration against a copy of the customer's actual database before production import.",
+  "android_signer_certificate_sha256": "1b4282a68401035aff69f2cab641b10390a4c3fa93e447155767c0361f27190b",
+  "files": [
+    {
+      "name": "NexaPOS-Windows-1.0.12.zip",
+      "url": "https://keswift254.github.io/nexapos-site/downloads/NexaPOS-Windows-1.0.12.zip",
+      "bytes": 18121505,
+      "sha256": "10d9dcc654cc414c2633a6fb7a04763500fabfa5f8af12206da11af60582ffc5"
+    },
+    {
+      "name": "NexaPOS-1.0.12.apk",
+      "url": "https://keswift254.github.io/nexapos-site/downloads/NexaPOS-1.0.12.apk",
+      "bytes": 70753406,
+      "sha256": "0d049c58658a03709e0b7a28963296ebab5d19b68f19a33c411ce8d58c4e59c8"
+    }
+  ]
+}
