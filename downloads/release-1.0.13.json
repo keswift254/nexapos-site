@@ -7,6 +7,12 @@
   "release_notes": "Inventory migration is now visible from the toolbar for administrators, with encrypted backup and restore. Cashiers and managers retain Check for Updates access.",
   "files": [
     {
+      "name": "NexaPOS-Setup-1.0.13.exe",
+      "url": "https://keswift254.github.io/nexapos-site/downloads/NexaPOS-Setup-1.0.13.exe",
+      "bytes": 18132992,
+      "sha256": "202977dea10c76beefb64707f8254ce64ed8530456ea9ac75deaaee6ef2e51f0"
+    },
+    {
       "name": "NexaPOS-Windows-1.0.13.zip",
       "url": "https://keswift254.github.io/nexapos-site/downloads/NexaPOS-Windows-1.0.13.zip",
       "bytes": 18121497,
