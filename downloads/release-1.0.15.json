@@ -1,0 +1,7 @@
+{
+  "version": "1.0.15",
+  "build_number": 16,
+  "built_on": "2026-09-06",
+  "app_commit": "c256d96",
+  "release_notes": "Fixes importing older POS sales with missing cost prices. Preserves sales and inventory and warns about incomplete historical costs."
+}
