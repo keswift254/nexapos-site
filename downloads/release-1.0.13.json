@@ -1,0 +1,22 @@
+{
+  "version": "1.0.13",
+  "build_number": 14,
+  "status": "candidate",
+  "built_on": "2026-09-06",
+  "app_commit": "257fde1",
+  "release_notes": "Inventory migration is now visible from the toolbar for administrators, with encrypted backup and restore. Cashiers and managers retain Check for Updates access.",
+  "files": [
+    {
+      "name": "NexaPOS-Windows-1.0.13.zip",
+      "url": "https://keswift254.github.io/nexapos-site/downloads/NexaPOS-Windows-1.0.13.zip",
+      "bytes": 18121497,
+      "sha256": "f3e587178f11886248d5e671a16f49b44af3e3c120cedf27b0bd62bf8160b60b"
+    },
+    {
+      "name": "NexaPOS-1.0.13.apk",
+      "url": "https://keswift254.github.io/nexapos-site/downloads/NexaPOS-1.0.13.apk",
+      "bytes": 70753406,
+      "sha256": "ee28c55f0c32e5864cafc92de11f68fd68da96914d96fc5c8278811ddd0abebe"
+    }
+  ]
+}
