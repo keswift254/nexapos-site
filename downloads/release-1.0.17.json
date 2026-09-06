@@ -1,0 +1,7 @@
+{
+  "version": "1.0.17",
+  "build_number": 18,
+  "built_on": "2026-09-07",
+  "app_commit": "3d24dff",
+  "release_notes": "Fixes Windows update installation for older clients by starting the installer and then showing the standard administrator approval prompt."
+}
