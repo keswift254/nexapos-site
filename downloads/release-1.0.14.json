@@ -1,0 +1,8 @@
+{
+  "version": "1.0.14",
+  "build_number": 15,
+  "status": "candidate",
+  "built_on": "2026-09-06",
+  "app_commit": "5444f6d",
+  "release_notes": "Adds safer authenticator setup with QR and copy, encrypted automatic local backups, and the matching Windows installer."
+}
