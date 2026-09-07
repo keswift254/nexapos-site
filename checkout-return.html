@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Return to NexaPOS</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f7f7fb; color: #14141f; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 540px; margin: 16vh auto; padding: 24px; }
+    h1 { font-size: 28px; margin: 0 0 16px; }
+    p { color: #55556b; }
+    a { display: inline-block; padding: 12px 24px; background: #4f46e5; color: white; border-radius: 6px; text-decoration: none; }
+    a:focus-visible { outline: 3px solid #166534; outline-offset: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Return to NexaPOS</h1>
+    <p>NexaPOS will confirm your payment and show your receipt.</p>
+    <a id="return" href="nexapos://checkout-return">Open NexaPOS</a>
+  </main>
+  <script>
+    // No transaction data or redirect targets are accepted from the query string.
+    window.location.href = 'nexapos://checkout-return';
+  </script>
+</body>
+</html>
