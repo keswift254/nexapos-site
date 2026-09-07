@@ -1,0 +1,7 @@
+{
+  "version": "1.0.19",
+  "build_number": 20,
+  "built_on": "2026-09-07",
+  "app_commit": "80c58f2",
+  "release_notes": "Branded receipts with barcode and installation contact; simpler receipt actions; fixed Android inventory pagination; secure support login and authenticator recovery; renewed licenses work on the original device; zero NexaPOS payment commission (Paystack fees still apply)."
+}
