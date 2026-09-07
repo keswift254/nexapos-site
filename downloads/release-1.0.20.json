@@ -1,0 +1,7 @@
+{
+  "version": "1.0.20",
+  "build_number": 21,
+  "built_on": "2026-09-07",
+  "app_commit": "576d8c8",
+  "release_notes": "More prominent business names on receipts, a smaller top-left NEXAPOS mark, and historical sales in Reports now open with the latest receipt layout and barcode."
+}
