@@ -1,0 +1,7 @@
+{
+  "version": "1.0.23",
+  "build_number": 24,
+  "built_on": "2026-09-08",
+  "app_commit": "99b103f",
+  "release_notes": "Displays report PDF previews at a comfortable thermal-paper width instead of stretching them across the screen."
+}
