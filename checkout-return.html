@@ -23,7 +23,12 @@
   </main>
   <script>
     // No transaction data or redirect targets are accepted from the query string.
-    window.location.href = 'nexapos://checkout-return';
+    const android = /Android/i.test(navigator.userAgent);
+    const destination = android
+      ? 'intent://checkout-return#Intent;scheme=nexapos;package=com.nexapos.nexapos_mobile;end'
+      : 'nexapos://checkout-return';
+    document.getElementById('return').href = destination;
+    window.location.replace(destination);
   </script>
 </body>
 </html>
