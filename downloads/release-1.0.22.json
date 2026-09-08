@@ -1,0 +1,7 @@
+{
+  "version": "1.0.22",
+  "build_number": 23,
+  "built_on": "2026-09-08",
+  "app_commit": "52e021e",
+  "release_notes": "Black-and-white thermal daily and monthly reports with an in-app PDF preview before saving."
+}
