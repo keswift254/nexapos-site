@@ -1,0 +1,7 @@
+{
+  "version": "1.0.24",
+  "build_number": 25,
+  "built_on": "2026-09-08",
+  "app_commit": "d1a99e9",
+  "release_notes": "Clearer report PDF preview with adjustable zoom controls."
+}
