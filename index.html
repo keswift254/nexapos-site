@@ -146,6 +146,7 @@
     font-size: 13px; color: var(--ink-soft);
   }
   .next-steps b { color: var(--ink); }
+  .toggle-link { margin: 16px 0 0; font-size: 13px; text-align: center; color: var(--ink-soft); }
 
   /* download-row's platform name/note and its Download button sat
      flush against each other with zero breathing room at common phone
@@ -260,6 +261,19 @@
           <button class="submit" type="submit" id="submitBtn">Continue to download</button>
         </form>
         <div class="msg err" id="formMsg"></div>
+        <p class="toggle-link">Already registered? <a href="#" id="showLookupLink">Enter your email</a></p>
+      </div>
+
+      <div id="lookupView" style="display: none;">
+        <h2>Welcome back</h2>
+        <p class="sub">Enter the email you registered with to get straight to the download.</p>
+        <form id="lookupForm">
+          <label for="lookupEmail">Email</label>
+          <input id="lookupEmail" type="email" required>
+          <button class="submit" type="submit" id="lookupBtn">Get download</button>
+        </form>
+        <div class="msg err" id="lookupMsg"></div>
+        <p class="toggle-link"><a href="#" id="showFormLink">New here? Register instead</a></p>
       </div>
 
       <div class="downloads" id="downloadsView">
@@ -348,6 +362,52 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
     msg.className = 'msg err show';
     btn.disabled = false;
     btn.textContent = 'Continue to download';
+  }
+});
+
+document.getElementById('showLookupLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('formView').style.display = 'none';
+  document.getElementById('lookupView').style.display = 'block';
+});
+
+document.getElementById('showFormLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('lookupView').style.display = 'none';
+  document.getElementById('formView').style.display = 'block';
+});
+
+document.getElementById('lookupForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('lookupBtn');
+  const msg = document.getElementById('lookupMsg');
+  msg.className = 'msg err';
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+
+  try {
+    const res = await fetch(LICENSE_SERVER + '?action=check_lead', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('lookupEmail').value.trim(),
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      msg.textContent = data.message || 'Something went wrong - try again.';
+      msg.className = 'msg err show';
+      btn.disabled = false;
+      btn.textContent = 'Get download';
+      return;
+    }
+    document.getElementById('lookupView').style.display = 'none';
+    document.getElementById('downloadsView').className = 'downloads show';
+  } catch (err) {
+    msg.textContent = 'Could not reach the server - check your connection and try again.';
+    msg.className = 'msg err show';
+    btn.disabled = false;
+    btn.textContent = 'Get download';
   }
 });
 </script>
