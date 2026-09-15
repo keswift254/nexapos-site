@@ -19,6 +19,13 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
+  <!-- Missing until this fix - without it, iOS Safari lays the page out
+       at a virtual ~980px desktop viewport and scales the whole thing
+       down to fit, which breaks Flutter's canvas sizing/positioning
+       badly enough to render as an effectively blank page. Every
+       current `flutter create` template includes this by default; this
+       project's index.html predates that and never picked it up. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
