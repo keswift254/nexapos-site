@@ -1,0 +1,7 @@
+{
+  "version": "1.0.34",
+  "build_number": 35,
+  "built_on": "2026-09-17",
+  "app_commit": "2998469",
+  "release_notes": "Cash tendered/change due on checkout, friendly receipt payment labels, IntaSend removed from checkout picker, faster initial shop sync, iOS Safari blank-page fix."
+}
