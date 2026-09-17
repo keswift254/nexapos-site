@@ -6,35 +6,57 @@
 <title>Privacy Policy - NexaPOS</title>
 <style>
   :root {
-    color-scheme: light;
+    color-scheme: light dark;
     --bg: #f7f7fb;
+    --bg-accent: radial-gradient(circle at 20% -10%, rgba(99,102,241,0.10), transparent 40%);
     --card: #ffffff;
     --ink: #14141f;
     --ink-soft: #55556b;
     --border: #e6e6f0;
     --accent: #4f46e5;
     --accent-dark: #3730a3;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0c14;
+      --bg-accent: radial-gradient(circle at 20% -10%, rgba(99,102,241,0.16), transparent 40%);
+      --card: #161826;
+      --ink: #eef0fb;
+      --ink-soft: #9aa0b4;
+      --border: rgba(255,255,255,0.08);
+      --accent: #6366f1;
+      --accent-dark: #818cf8;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg);
+    background: var(--bg) var(--bg-accent);
+    background-attachment: fixed;
     color: var(--ink);
     line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
   a { color: var(--accent); }
   .wrap { max-width: 780px; margin: 0 auto; padding: 0 24px; }
 
   header.site {
-    padding: 20px 0;
+    padding: 18px 0;
     border-bottom: 1px solid var(--border);
-    background: var(--card);
+    background: color-mix(in srgb, var(--card) 82%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 50;
   }
   header.site .wrap { display: flex; align-items: center; justify-content: space-between; max-width: 1080px; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; text-decoration: none; color: var(--ink); }
   .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
-  nav.site a { color: var(--ink-soft); text-decoration: none; font-size: 14px; margin-left: 24px; }
+  nav.site a { color: var(--ink-soft); text-decoration: none; font-size: 14px; margin-left: 24px; transition: color 0.15s ease; }
   nav.site a:hover { color: var(--ink); }
 
   main { padding: 56px 0 80px; }
@@ -52,6 +74,7 @@
     border-radius: 14px;
     padding: 20px 24px;
     margin: 20px 0;
+    box-shadow: var(--shadow-sm);
   }
   .card p:last-child { margin-bottom: 0; }
 
@@ -79,7 +102,7 @@
 
     <h2>The short version</h2>
     <div class="card">
-      <p>NexaPOS is built local-first: your products, sales, stock, and staff accounts live on your own device and sync only between your own shop's devices. We don't run ads, we don't use third-party analytics or advertising trackers, and we don't sell data to anyone. The only outside party involved in handling money is Paystack, for the payments you choose to accept.</p>
+      <p>NexaPOS is built local-first: your products, sales, stock, and staff accounts live on your own device and sync only between your own shop's devices. We don't run ads, we don't use third-party analytics or advertising trackers, and we don't sell data to anyone. The only outside party involved in handling money is our payment processor, for the payments you choose to accept.</p>
     </div>
 
     <h2>Information the app collects</h2>
@@ -88,7 +111,7 @@
       <li><b>Your shop's business data.</b> Products, prices, stock levels, sales, expenses, and reports you create in the app. This is your data - it's stored on your device and synced across your own shop's devices (e.g. the counter PC and a phone) so everyone sees the same numbers. We don't access or use it beyond making that sync work.</li>
       <li><b>Staff accounts you create.</b> Usernames and roles for the people you add to run the till. Passwords are stored as one-way hashes, never as plain text, and are part of your own shop's synced data - not visible to us.</li>
       <li><b>Your customers' details, if you choose to enter them.</b> A customer's name and phone number are optional fields at checkout, useful for receipts or follow-up. Whether to collect this from your customers, and how you use it afterward, is your decision as the shop - the same as any till receipt.</li>
-      <li><b>Settlement details, if you enable card/mobile money payments.</b> Your bank account or mobile money (till/paybill) number, sent to our server so we can set up your Paystack subaccount and route your customers' payments to you. We do not see or store your customers' card numbers or M-Pesa PINs - Paystack handles that part directly (see below).</li>
+      <li><b>Settlement details, if you enable card/mobile money payments.</b> Your bank account or mobile money (till/paybill) number, sent to our server so we can set up your payment subaccount and route your customers' payments to you. We do not see or store your customers' card numbers or M-Pesa PINs - our payment processor handles that part directly (see below).</li>
       <li><b>Device and license information.</b> Each device running NexaPOS generates a random device ID and an API key so it can sync securely and so your license key can be verified. A product image you add to an item stays stored locally on that device.</li>
       <li><b>Contact details, if you register on this website.</b> Your name, email, business name, and phone number, if you fill in the "Get NexaPOS" form - so we know who downloaded the app and can reach you to arrange a license.</li>
     </ul>
@@ -98,11 +121,11 @@
       <li>No location tracking.</li>
       <li>No access to your contacts, camera, or microphone. Adding a product photo uses your photo gallery only - the app never opens the camera itself.</li>
       <li>No advertising identifiers, no ad networks, no third-party analytics or crash-tracking SDKs embedded in the app.</li>
-      <li>No card numbers, mobile money PINs, or other payment credentials - those go straight to Paystack, never through our servers.</li>
+      <li>No card numbers, mobile money PINs, or other payment credentials - those go straight to our payment processor, never through our servers.</li>
     </ul>
 
-    <h2>Paystack</h2>
-    <p>When a customer pays by card or mobile money, that payment is processed by <a href="https://paystack.com/terms" target="_blank" rel="noopener">Paystack</a>, not by NexaPOS directly. Paystack has its own privacy policy governing how it handles payment data. We only receive back a confirmation and reference for the transaction, plus your own settlement (payout) details as described above.</p>
+    <h2>Payment processing</h2>
+    <p>When a customer pays by card or mobile money, that payment is processed by <a href="https://paystack.com/terms" target="_blank" rel="noopener">our payment processor</a>, not by NexaPOS directly. Our payment processor has its own privacy policy governing how it handles payment data. We only receive back a confirmation and reference for the transaction, plus your own settlement (payout) details as described above.</p>
 
     <h2>How your data is stored and secured</h2>
     <p>Business data lives in a local database on your device, protected by your operating system's normal app data protections - it isn't itself additionally encrypted, so treat access to an unlocked device the way you'd treat access to a physical till. Device credentials, API keys, and your license key are stored separately, using your operating system's secure credential storage (Windows Credential Manager or Android's equivalent), not in plain text. Sync traffic between your devices and our servers travels over HTTPS. Server-side, your shop's synced data is stored on infrastructure we operate and is not shared with other shops or third parties.</p>
