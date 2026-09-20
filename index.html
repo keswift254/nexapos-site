@@ -190,6 +190,11 @@
   .download-row .plat .glyph { font-size: 22px; }
   .download-row .plat .name { font-weight: 600; font-size: 14px; }
   .download-row .plat .note { font-size: 12px; color: var(--ink-soft); }
+  .download-row select {
+    margin: 4px 0 2px; padding: 5px 8px; font: inherit; font-size: 13px;
+    color: var(--ink); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
   .next-steps {
     margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border);
     font-size: 13px; color: var(--ink-soft);
@@ -333,10 +338,14 @@
             <div class="glyph">🖥️</div>
             <div>
               <div class="name">Windows</div>
-              <div class="note">Windows 10/11, 64-bit. On Windows 7/8 the same setup installs the browser edition (needs Chrome, Edge or Firefox already installed).</div>
+              <select id="winVersion" aria-label="Your version of Windows">
+                <option value="modern">Windows 10 / 11</option>
+                <option value="legacy">Windows 7 / 8 / 8.1</option>
+              </select>
+              <div class="note" id="winNote"></div>
             </div>
           </div>
-          <a class="btn primary" id="windowsLink" href="downloads/NexaPOS-Setup-1.0.34.exe" download>Download installer</a>
+          <a class="btn primary" id="windowsLink" href="downloads/NexaPOS-Setup-1.0.38.exe" download>Download installer</a>
         </div>
         <div class="download-row">
           <div class="plat">
@@ -346,7 +355,7 @@
               <div class="note">Android 8.0+</div>
             </div>
           </div>
-          <a class="btn primary" id="androidLink" href="downloads/NexaPOS-1.0.34.apk" download>Download</a>
+          <a class="btn primary" id="androidLink" href="downloads/NexaPOS-1.0.38.apk" download>Download</a>
         </div>
         <div class="next-steps">
           <b>Next:</b> install the app, then reach out to us with your name/email to arrange payment. We'll generate your license key and send it over - enter it the first time the app opens and you're done, no internet needed after that.
@@ -373,12 +382,42 @@ const LICENSE_SERVER = 'https://nexapos-license-1.onrender.com/index.php';
 // blocked) - this replaces them with whatever's actually live the
 // moment the page loads, so the site never again quietly points new
 // visitors at a stale build the way the hardcoded links once did.
+// Which Windows download to offer. The desktop app needs Windows 10 or
+// newer (its engine imports a function that doesn't exist before Windows
+// 8, so on Windows 7 it doesn't even load), so Windows 7/8/8.1 get a
+// separate, tiny setup that opens NexaPOS in the browser instead. That
+// file never changes when the app updates - the web edition updates
+// itself - so it's linked directly rather than through latest_version.
+const LEGACY_WINDOWS_URL = 'downloads/NexaPOS-Setup-Windows7-8.exe';
+let modernWindowsUrl = document.getElementById('windowsLink').getAttribute('href');
+const winSelect = document.getElementById('winVersion');
+const WIN_NOTES = {
+  modern: 'Desktop app for Windows 10 or 11, 64-bit.',
+  legacy: 'A small setup that opens NexaPOS in Chrome, Edge or Firefox - one of them must already be installed. Works on 32-bit and 64-bit Windows 7, 8 and 8.1.',
+};
+function updateWindowsDownload() {
+  const legacy = winSelect.value === 'legacy';
+  const link = document.getElementById('windowsLink');
+  link.href = legacy ? LEGACY_WINDOWS_URL : modernWindowsUrl;
+  link.textContent = legacy ? 'Download Windows 7/8 setup' : 'Download installer';
+  document.getElementById('winNote').textContent = WIN_NOTES[legacy ? 'legacy' : 'modern'];
+}
+// Preselect from what the browser reports (Windows NT 6.1 = 7, 6.2 = 8,
+// 6.3 = 8.1, 10.0 = 10/11); the visitor can still change it.
+(function preselectWindowsVersion() {
+  const m = /Windows NT (\d+)\.(\d+)/.exec(navigator.userAgent);
+  if (m && (Number(m[1]) < 6 || (Number(m[1]) === 6 && Number(m[2]) <= 3))) winSelect.value = 'legacy';
+})();
+winSelect.addEventListener('change', updateWindowsDownload);
+updateWindowsDownload();
+
 fetch(LICENSE_SERVER + '?action=latest_version')
   .then((res) => res.json())
   .then((data) => {
     if (!data.success) return;
     if (data.windows_installer_url) {
-      document.getElementById('windowsLink').href = data.windows_installer_url;
+      modernWindowsUrl = data.windows_installer_url;
+      updateWindowsDownload();
     }
     if (data.android_url) {
       document.getElementById('androidLink').href = data.android_url;
