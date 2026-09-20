@@ -56,30 +56,205 @@
       padding: 24px;
     }
     #nexapos-splash .brand { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+    #nexapos-splash .spinner-wrap { position: relative; width: 68px; height: 68px; }
     #nexapos-splash .spinner {
-      width: 38px; height: 38px; border-radius: 50%;
+      position: absolute; inset: 0; border-radius: 50%;
       border: 4px solid rgba(80, 90, 140, 0.2); border-top-color: #505a8c;
       animation: nexapos-spin 0.9s linear infinite;
+    }
+    #nexapos-splash .pct {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: #505a8c;
     }
     #nexapos-splash .hint { font-size: 13px; opacity: 0.7; max-width: 300px; line-height: 1.45; }
     @keyframes nexapos-spin { to { transform: rotate(360deg); } }
     @media (prefers-color-scheme: dark) {
       html, body, #nexapos-splash { background: #14131a; color: #e6e3f0; }
       #nexapos-splash .spinner { border-color: rgba(200, 205, 240, 0.2); border-top-color: #b7bdf0; }
+      #nexapos-splash .pct { color: #b7bdf0; }
     }
   </style>
 </head>
 <body>
   <div id="nexapos-splash">
     <div class="brand">NexaPOS</div>
-    <div class="spinner"></div>
+    <div class="spinner-wrap">
+      <div class="spinner"></div>
+      <div class="pct" id="nexapos-splash-pct" aria-live="off"></div>
+    </div>
     <div class="hint" id="nexapos-splash-hint">Loading the app... the first visit downloads it once, after that it opens quickly.</div>
   </div>
   <script>
+    // Byte sizes (decoded) of the big downloads, written in at build time by
+    // release-tools/stamp-web-sizes.py so the percentage below is measured against
+    // the real files. Left as null (and the built-in figures used) if not stamped.
+    window.NEXAPOS_LOAD_SIZES = /*NEXAPOS_SIZES*/{"canvaskit.wasm": 7284349, "chromium/canvaskit.wasm": 5428553, "drift_worker.js": 355222, "main.dart.js": 6058673, "sqlite3mc.wasm": 795141, "webparagraph/canvaskit.wasm": 3729073};
     (function () {
       var splash = document.getElementById('nexapos-splash');
       var hint = document.getElementById('nexapos-splash-hint');
+      var pctEl = document.getElementById('nexapos-splash-pct');
+      var firstFrame = false;
+
+      // ---- the percentage -------------------------------------------------
+      // What it means: the share of the app's expected download that has really
+      // arrived, weighted by how long each file takes on the wire (bigger and
+      // less compressible = more of the wait). It can only go up, and it stays
+      // at 99% until Flutter has actually drawn its first frame, so it never
+      // claims "done" while the screen is still the loading screen.
+      var STAGES = [
+        { key: 'canvaskit.wasm', bytes: 7284349, ratio: 2.6 },
+        { key: 'main.dart.js', bytes: 6054884, ratio: 3.4 },
+        { key: 'sqlite3mc.wasm', bytes: 795141, ratio: 2.1 },
+        { key: 'drift_worker.js', bytes: 355222, ratio: 3.5 }
+      ];
+      var stamped = window.NEXAPOS_LOAD_SIZES || {};
+      var i;
+      for (i = 0; i < STAGES.length; i++) {
+        STAGES[i].total = STAGES[i].bytes;
+        STAGES[i].loaded = 0;      // decoded bytes actually read (only for fetch()ed files)
+        STAGES[i].startedAt = 0;
+        STAGES[i].done = false;
+        STAGES[i].doneAt = 0;
+      }
+
+      function pathOf(url) {
+        return String(url || '').split('?')[0].split('#')[0];
+      }
+      function endsWithSegment(path, key) {
+        return path.slice(-(key.length + 1)) === '/' + key;
+      }
+      function matchStage(url) {
+        var path = pathOf(url), k;
+        for (k = 0; k < STAGES.length; k++) if (endsWithSegment(path, STAGES[k].key)) return STAGES[k];
+        return null;
+      }
+      // The exact size of the file being fetched: the stamped size of the
+      // longest matching path (CanvasKit has several variants of the same file
+      // name), else the stage's built-in figure.
+      function sizeFor(stage, url) {
+        var path = pathOf(url), best = null, key;
+        for (key in stamped) {
+          if (Object.prototype.hasOwnProperty.call(stamped, key) && endsWithSegment(path, key) &&
+              (best === null || key.length > best.length)) best = key;
+        }
+        return best !== null && stamped[best] > 0 ? stamped[best] : stage.bytes;
+      }
+      for (i = 0; i < STAGES.length; i++) {
+        var stampedSize = stamped[STAGES[i].key];
+        if (stampedSize > 0) STAGES[i].total = stampedSize;
+      }
+
+      // Real byte counts for anything loaded with fetch() (CanvasKit, the
+      // database wasm): read a clone of the response as it streams in.
+      var realFetch = window.fetch;
+      if (realFetch && window.Response && Response.prototype.clone) {
+        window.fetch = function (input) {
+          var promise = realFetch.apply(this, arguments);
+          try {
+            var url = typeof input === 'string' ? input : (input && input.url) || '';
+            var stage = matchStage(url);
+            if (stage && !stage.done) {
+              stage.startedAt = stage.startedAt || Date.now();
+              stage.total = sizeFor(stage, url);
+              promise.then(function (res) { countBytes(stage, res); }, function () {});
+            }
+          } catch (e) {}
+          return promise;
+        };
+      }
+      function countBytes(stage, res) {
+        try {
+          if (!res.ok || !res.body || !res.body.getReader) return;
+          var reader = res.clone().body.getReader();
+          (function pump() {
+            reader.read().then(function (chunk) {
+              if (chunk.done) return;
+              stage.loaded += chunk.value.length;
+              pump();
+            }, function () {});
+          })();
+        } catch (e) {}
+      }
+
+      // Script-tag loads (main.dart.js) can't be streamed: note when the tag is
+      // added, then completion arrives through the resource-timing entries below.
+      try {
+        new MutationObserver(function (records) {
+          var r, n, node, stage;
+          for (r = 0; r < records.length; r++) {
+            for (n = 0; n < records[r].addedNodes.length; n++) {
+              node = records[r].addedNodes[n];
+              if (node.tagName === 'SCRIPT' && node.src) {
+                stage = matchStage(node.src);
+                if (stage && !stage.startedAt) stage.startedAt = Date.now();
+              }
+            }
+          }
+        }).observe(document.documentElement, { childList: true, subtree: true });
+      } catch (e) {}
+
+      var measuredBytes = 0, measuredMs = 0;   // observed download speed, from finished files
+      function noteFinished() {
+        var entries;
+        try { entries = performance.getEntriesByType('resource'); } catch (e) { return; }
+        var e, stage;
+        for (e = 0; e < entries.length; e++) {
+          stage = matchStage(entries[e].name);
+          if (stage && !stage.done && entries[e].responseEnd > 0) {
+            stage.done = true;
+            stage.doneAt = Date.now();
+            // Only files that really took time say anything about the connection.
+            if (entries[e].duration > 300) { measuredBytes += stage.total; measuredMs += entries[e].duration; }
+          }
+        }
+      }
+
+      function stageProgress(stage, now) {
+        if (stage.done) return 1;
+        if (stage.loaded > 0) return Math.min(0.98, stage.loaded / stage.total);
+        if (!stage.startedAt) return 0;
+        var seconds = (now - stage.startedAt) / 1000;
+        // No byte count for this one (a script tag): estimate from the speed the
+        // earlier files were seen to download at, and never claim more than 90%.
+        if (measuredMs > 0) return Math.min(0.9, seconds * (measuredBytes / (measuredMs / 1000)) / stage.total);
+        // Nothing measured yet (e.g. CanvasKit came from cache). Use the browser's own
+        // connection-speed hint where it has one (Chrome, Edge, Android), else assume a
+        // slow-ish connection. Either way it eases toward 90% rather than jumping.
+        var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        var tau = 20;
+        if (conn && conn.downlink > 0) {
+          tau = Math.min(30, Math.max(4, (stage.total / stage.ratio) * 8 / (conn.downlink * 1e6) / 2));
+        }
+        return 0.9 * (1 - Math.exp(-seconds / tau));
+      }
+
+      var shown = 0;
+      function update() {
+        if (firstFrame) return;
+        noteFinished();
+        var now = Date.now(), total = 0, got = 0, allDone = true, lastDone = 0, s, weight;
+        for (s = 0; s < STAGES.length; s++) {
+          weight = STAGES[s].total / STAGES[s].ratio;
+          total += weight;
+          got += weight * stageProgress(STAGES[s], now);
+          if (!STAGES[s].done) allDone = false;
+          if (STAGES[s].doneAt > lastDone) lastDone = STAGES[s].doneAt;
+        }
+        // Starting the app once everything is here (engine start, opening the
+        // local database, first draw) is a short last stage of its own.
+        var boot = total * 0.07;
+        if (allDone) got += boot * 0.95 * (1 - Math.exp(-(now - lastDone) / 3000));
+        total += boot;
+        var percent = Math.floor(got / total * 100);
+        shown = Math.max(shown, Math.min(99, percent));
+        if (pctEl) pctEl.textContent = shown + '%';
+      }
+      update();
+      var timer = setInterval(update, 250);
+
       window.addEventListener('flutter-first-frame', function () {
+        firstFrame = true;
+        clearInterval(timer);
         if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
       });
       // Reassure rather than leave a spinner that looks stuck: past this
@@ -99,6 +274,34 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    // Offline cache: after one successful online visit the whole browser app is kept on the
+    // device so a closed or refreshed POS can start again without internet (see
+    // nexapos_service_worker.js). It is registered only AFTER the app has drawn its first
+    // frame: the cache downloads ~20 MB in the background, and starting that during startup
+    // would compete with the app's own downloads and slow a first visit on a slow connection.
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      var started = false;
+      function register() {
+        if (started) return;
+        started = true;
+        var workerUrl = new URL('nexapos_service_worker.js', document.baseURI);
+        var workerScope = new URL('./', document.baseURI).pathname;
+        window.NEXAPOS_SERVICE_WORKER_READY = navigator.serviceWorker
+          .register(workerUrl, { scope: workerScope })
+          .then(function (registration) {
+            window.addEventListener('online', function () { registration.update(); });
+            return registration;
+          })
+          .catch(function (error) {
+            console.warn('NexaPOS offline cache could not start:', error);
+            return null;
+          });
+      }
+      window.addEventListener('flutter-first-frame', function () { setTimeout(register, 1500); });
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
