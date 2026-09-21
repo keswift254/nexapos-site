@@ -1,18 +1,30 @@
 const CACHE_PREFIX = 'nexapos-web-';
-const CACHE_NAME = CACHE_PREFIX + 'a5bff66a4b07e6e3b491';
-const PRECACHE_URLS = ["./.last_build_id","./assets/AssetManifest.bin","./assets/AssetManifest.bin.json","./assets/FontManifest.json","./assets/fonts/MaterialIcons-Regular.otf","./assets/NOTICES","./assets/packages/cupertino_icons/assets/CupertinoIcons.ttf","./assets/packages/esc_pos_utils_plus/resources/capabilities.json","./assets/packages/material_ui/shaders/ink_sparkle.frag","./assets/shaders/ink_sparkle.frag","./assets/shaders/stretch_effect.frag","./canvaskit/canvaskit.js","./canvaskit/canvaskit.wasm","./canvaskit/chromium/canvaskit.js","./canvaskit/chromium/canvaskit.wasm","./drift_worker.js","./favicon.png","./flutter.js","./flutter_bootstrap.js","./icons/Icon-192.png","./icons/Icon-512.png","./icons/Icon-maskable-192.png","./icons/Icon-maskable-512.png","./index.html","./main.dart.js","./manifest.json","./sqlite3mc.wasm","./version.json"];
+const CACHE_NAME = CACHE_PREFIX + '448e836eeade3831f615';
+const PRECACHE_URLS = ["./assets/AssetManifest.bin","./assets/AssetManifest.bin.json","./assets/FontManifest.json","./assets/fonts/MaterialIcons-Regular.otf","./assets/NOTICES","./assets/packages/cupertino_icons/assets/CupertinoIcons.ttf","./assets/packages/esc_pos_utils_plus/resources/capabilities.json","./assets/packages/material_ui/shaders/ink_sparkle.frag","./assets/shaders/ink_sparkle.frag","./assets/shaders/stretch_effect.frag","./canvaskit/canvaskit.js","./canvaskit/canvaskit.wasm","./canvaskit/chromium/canvaskit.js","./canvaskit/chromium/canvaskit.wasm","./drift_worker.js","./favicon.png","./flutter.js","./flutter_bootstrap.js","./icons/Icon-192.png","./icons/Icon-512.png","./icons/Icon-maskable-192.png","./icons/Icon-maskable-512.png","./index.html","./main.dart.js","./manifest.json","./sqlite3mc.wasm","./version.json"];
 const INDEX_URL = new URL('index.html', self.registration.scope).toString();
+
+// index.html registers this worker as nexapos_service_worker.js?canvaskit=chromium (or =plain)
+// after seeing which CanvasKit build this browser actually loaded. The other build is ~5-7 MB
+// this browser will never use, so it is not downloaded. With no hint, both are cached.
+const CANVASKIT_BUILD = new URL(self.location.href).searchParams.get('canvaskit');
+const PRECACHE_FOR_THIS_BROWSER = PRECACHE_URLS.filter((url) => {
+  if (CANVASKIT_BUILD === 'chromium') return !url.startsWith('./canvaskit/canvaskit.');
+  if (CANVASKIT_BUILD === 'plain') return !url.startsWith('./canvaskit/chromium/');
+  return true;
+});
 
 async function precacheApplication() {
   const cache = await caches.open(CACHE_NAME);
   // Avoid asking mobile Safari to fetch the entire application concurrently.
-  for (let index = 0; index < PRECACHE_URLS.length; index += 20) {
-    // cache: 'reload' bypasses the browser's own HTTP cache. GitHub Pages lets files be
-    // cached for 10 minutes, so without this a visitor who loaded the OLD version a few
+  for (let index = 0; index < PRECACHE_FOR_THIS_BROWSER.length; index += 20) {
+    // cache: 'no-cache' makes the browser ask the server whether its own copy is still current
+    // (a tiny "not modified" answer when it is, so the files the page just downloaded are not
+    // downloaded a second time) instead of trusting it blindly. GitHub Pages lets files be
+    // cached for 10 minutes, so without a check a visitor who loaded the OLD version a few
     // minutes before a deployment would have the old files copied into the NEW cache
     // version and stay on stale code until the next release.
     await cache.addAll(
-      PRECACHE_URLS.slice(index, index + 20).map((url) => new Request(url, { cache: 'reload' })),
+      PRECACHE_FOR_THIS_BROWSER.slice(index, index + 20).map((url) => new Request(url, { cache: 'no-cache' })),
     );
   }
   await self.skipWaiting();
