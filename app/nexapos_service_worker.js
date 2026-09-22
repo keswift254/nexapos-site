@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'nexapos-web-';
-const CACHE_NAME = CACHE_PREFIX + '2d2fc61cffb5ff666d87';
+const CACHE_NAME = CACHE_PREFIX + 'b1068e782ad9f1c6ab85';
 const PRECACHE_URLS = ["./assets/AssetManifest.bin","./assets/AssetManifest.bin.json","./assets/FontManifest.json","./assets/fonts/MaterialIcons-Regular.otf","./assets/NOTICES","./assets/packages/cupertino_icons/assets/CupertinoIcons.ttf","./assets/packages/esc_pos_utils_plus/resources/capabilities.json","./assets/packages/material_ui/shaders/ink_sparkle.frag","./assets/shaders/ink_sparkle.frag","./assets/shaders/stretch_effect.frag","./canvaskit/canvaskit.js","./canvaskit/canvaskit.wasm","./canvaskit/chromium/canvaskit.js","./canvaskit/chromium/canvaskit.wasm","./drift_worker.js","./favicon.png","./flutter.js","./flutter_bootstrap.js","./icons/Icon-192.png","./icons/Icon-512.png","./icons/Icon-maskable-192.png","./icons/Icon-maskable-512.png","./index.html","./main.dart.js","./manifest-ios.json","./manifest.json","./sqlite3mc.wasm","./version.json"];
 const INDEX_URL = new URL('index.html', self.registration.scope).toString();
 
