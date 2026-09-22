@@ -1,6 +1,6 @@
 const CACHE_PREFIX = 'nexapos-web-';
-const CACHE_NAME = CACHE_PREFIX + '4884f06eebb8efbc04b8';
-const PRECACHE_URLS = ["./assets/AssetManifest.bin","./assets/AssetManifest.bin.json","./assets/FontManifest.json","./assets/fonts/MaterialIcons-Regular.otf","./assets/NOTICES","./assets/packages/cupertino_icons/assets/CupertinoIcons.ttf","./assets/packages/esc_pos_utils_plus/resources/capabilities.json","./assets/packages/material_ui/shaders/ink_sparkle.frag","./assets/shaders/ink_sparkle.frag","./assets/shaders/stretch_effect.frag","./canvaskit/canvaskit.js","./canvaskit/canvaskit.wasm","./canvaskit/chromium/canvaskit.js","./canvaskit/chromium/canvaskit.wasm","./drift_worker.js","./favicon.png","./flutter.js","./flutter_bootstrap.js","./icons/Icon-192.png","./icons/Icon-512.png","./icons/Icon-maskable-192.png","./icons/Icon-maskable-512.png","./index.html","./main.dart.js","./manifest.json","./sqlite3mc.wasm","./version.json"];
+const CACHE_NAME = CACHE_PREFIX + 'e24f8550dc293a50c159';
+const PRECACHE_URLS = ["./assets/AssetManifest.bin","./assets/AssetManifest.bin.json","./assets/FontManifest.json","./assets/fonts/MaterialIcons-Regular.otf","./assets/NOTICES","./assets/packages/cupertino_icons/assets/CupertinoIcons.ttf","./assets/packages/esc_pos_utils_plus/resources/capabilities.json","./assets/packages/material_ui/shaders/ink_sparkle.frag","./assets/shaders/ink_sparkle.frag","./assets/shaders/stretch_effect.frag","./canvaskit/canvaskit.js","./canvaskit/canvaskit.wasm","./canvaskit/chromium/canvaskit.js","./canvaskit/chromium/canvaskit.wasm","./drift_worker.js","./favicon.png","./flutter.js","./flutter_bootstrap.js","./icons/Icon-192.png","./icons/Icon-512.png","./icons/Icon-maskable-192.png","./icons/Icon-maskable-512.png","./index.html","./main.dart.js","./manifest-ios.json","./manifest.json","./sqlite3mc.wasm","./version.json"];
 const INDEX_URL = new URL('index.html', self.registration.scope).toString();
 
 // index.html registers this worker as nexapos_service_worker.js?canvaskit=chromium (or =plain)
@@ -15,17 +15,27 @@ const PRECACHE_FOR_THIS_BROWSER = PRECACHE_URLS.filter((url) => {
 
 async function precacheApplication() {
   const cache = await caches.open(CACHE_NAME);
-  // Avoid asking mobile Safari to fetch the entire application concurrently.
-  for (let index = 0; index < PRECACHE_FOR_THIS_BROWSER.length; index += 20) {
-    // cache: 'no-cache' makes the browser ask the server whether its own copy is still current
-    // (a tiny "not modified" answer when it is, so the files the page just downloaded are not
-    // downloaded a second time) instead of trusting it blindly. GitHub Pages lets files be
-    // cached for 10 minutes, so without a check a visitor who loaded the OLD version a few
-    // minutes before a deployment would have the old files copied into the NEW cache
-    // version and stay on stale code until the next release.
-    await cache.addAll(
-      PRECACHE_FOR_THIS_BROWSER.slice(index, index + 20).map((url) => new Request(url, { cache: 'no-cache' })),
-    );
+  // WebKit can abort one request in an otherwise healthy batch. Cache each
+  // file independently and retry transient failures, preserving every file
+  // that already succeeded instead of rolling the whole batch back.
+  for (const url of PRECACHE_FOR_THIS_BROWSER) {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const request = new Request(url, { cache: 'no-cache' });
+        const response = await fetch(request);
+        if (!response || !response.ok) throw new Error(`HTTP ${response && response.status}`);
+        await cache.put(request, response);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 350));
+        }
+      }
+    }
+    if (lastError) throw lastError;
   }
   await self.skipWaiting();
 }

@@ -37,7 +37,21 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <title>NexaPOS</title>
-  <link rel="manifest" href="manifest.json">
+  <!-- iOS installs a Home Screen web app into a storage container that is
+       separate from Safari.  NexaPOS deliberately asks iOS for browser mode
+       so the shortcut reopens the same Safari/IndexedDB shop instead of
+       looking like a brand-new device. Other platforms keep the normal
+       standalone app experience. -->
+  <script>
+    (function () {
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var manifest = document.createElement('link');
+      manifest.rel = 'manifest';
+      manifest.href = isIOS ? 'manifest-ios.json' : 'manifest.json';
+      document.head.appendChild(manifest);
+    })();
+  </script>
   <!-- Flutter's own bootstrap paints nothing until the whole app bundle
        has downloaded and compiled (several MB on a first visit), so the
        page sat blank white for as long as that took - indistinguishable
@@ -88,7 +102,7 @@
     // Byte sizes (decoded) of the big downloads, written in at build time by
     // release-tools/stamp-web-sizes.py so the percentage below is measured against
     // the real files. Left as null (and the built-in figures used) if not stamped.
-    window.NEXAPOS_LOAD_SIZES = /*NEXAPOS_SIZES*/{"canvaskit.wasm": 7284349, "chromium/canvaskit.wasm": 5428553, "drift_worker.js": 355222, "main.dart.js": 6066789, "sqlite3mc.wasm": 795141, "webparagraph/canvaskit.wasm": 3729073};
+    window.NEXAPOS_LOAD_SIZES = /*NEXAPOS_SIZES*/{"canvaskit.wasm": 7284349, "chromium/canvaskit.wasm": 5428553, "drift_worker.js": 355222, "main.dart.js": 6070155, "sqlite3mc.wasm": 795141, "webparagraph/canvaskit.wasm": 3729073};
     (function () {
       var splash = document.getElementById('nexapos-splash');
       var hint = document.getElementById('nexapos-splash-hint');
@@ -275,40 +289,55 @@
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
   <script>
-    // Offline cache: after one successful online visit the whole browser app is kept on the
-    // device so a closed or refreshed POS can start again without internet (see
-    // nexapos_service_worker.js). It is registered only AFTER the app has drawn its first
-    // frame: the cache downloads ~20 MB in the background, and starting that during startup
-    // would compete with the app's own downloads and slow a first visit on a slow connection.
+    // Start the offline cache immediately. NEXAPOS_SERVICE_WORKER_READY does
+    // not resolve until the worker is activated, so tests and diagnostics
+    // cannot report a merely-registered (but unusable) worker as ready.
     (function () {
       if (!('serviceWorker' in navigator)) return;
-      var started = false;
-      function register() {
-        if (started) return;
-        started = true;
-        var workerUrl = new URL('nexapos_service_worker.js', document.baseURI);
-        // Tell the worker which CanvasKit build this browser loaded so it caches only that one.
-        try {
-          var loaded = performance.getEntriesByType('resource').map(function (entry) { return entry.name; });
-          if (loaded.some(function (name) { return /\/canvaskit\/chromium\/canvaskit\.wasm/.test(name); })) {
-            workerUrl.search = '?canvaskit=chromium';
-          } else if (loaded.some(function (name) { return /\/canvaskit\/canvaskit\.wasm/.test(name); })) {
-            workerUrl.search = '?canvaskit=plain';
-          }
-        } catch (_) { /* no hint: the worker caches both builds */ }
-        var workerScope = new URL('./', document.baseURI).pathname;
-        window.NEXAPOS_SERVICE_WORKER_READY = navigator.serviceWorker
-          .register(workerUrl, { scope: workerScope })
-          .then(function (registration) {
-            window.addEventListener('online', function () { registration.update(); });
-            return registration;
-          })
-          .catch(function (error) {
-            console.warn('NexaPOS offline cache could not start:', error);
-            return null;
+      function activated(registration) {
+        var worker = registration.active || registration.waiting || registration.installing;
+        if (!worker || worker.state === 'activated') return Promise.resolve(registration);
+        return new Promise(function (resolve, reject) {
+          var timeout = setTimeout(function () { reject(new Error('Service worker activation timed out.')); }, 120000);
+          worker.addEventListener('statechange', function () {
+            if (worker.state === 'activated') {
+              clearTimeout(timeout);
+              resolve(registration);
+            } else if (worker.state === 'redundant') {
+              clearTimeout(timeout);
+              reject(new Error('Service worker became redundant.'));
+            }
           });
+        });
       }
-      window.addEventListener('flutter-first-frame', function () { setTimeout(register, 1500); });
+      var workerUrl = new URL('nexapos_service_worker.js', document.baseURI);
+      // Flutter selects the Chromium CanvasKit build for Chromium-family
+      // browsers; everyone else uses the plain build. This hint keeps the
+      // immediate install from downloading the unused 5-7 MB variant.
+      if (/Chrome|Chromium|Edg\//.test(navigator.userAgent) && !/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+        workerUrl.search = '?canvaskit=chromium';
+      } else {
+        workerUrl.search = '?canvaskit=plain';
+      }
+      var workerScope = new URL('./', document.baseURI).pathname;
+      window.NEXAPOS_SERVICE_WORKER_READY = navigator.serviceWorker
+        .register(workerUrl, { scope: workerScope })
+        .then(activated)
+        .then(function (registration) {
+          window.addEventListener('online', function () { registration.update(); });
+          return registration;
+        })
+        .catch(function (error) {
+          console.warn('NexaPOS offline cache could not start:', error);
+          return null;
+        });
+
+      // Best effort: supported browsers may protect IndexedDB/OPFS and the
+      // application cache from storage-pressure eviction. A denial is normal
+      // and must never block startup.
+      if (navigator.storage && navigator.storage.persist) {
+        window.NEXAPOS_PERSISTENT_STORAGE = navigator.storage.persist().catch(function () { return false; });
+      }
     })();
   </script>
   <script src="flutter_bootstrap.js" async></script>
