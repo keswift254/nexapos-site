@@ -340,7 +340,8 @@
               <div class="name">Windows</div>
               <select id="winVersion" aria-label="Your version of Windows">
                 <option value="modern">Windows 10 / 11</option>
-                <option value="legacy">Windows 7 / 8 / 8.1</option>
+                <option value="legacy64">Windows 7 / 8 / 8.1 (64-bit)</option>
+                <option value="legacy32">Windows 7 / 8 / 8.1 (32-bit)</option>
               </select>
               <div class="note" id="winNote"></div>
             </div>
@@ -382,31 +383,61 @@ const LICENSE_SERVER = 'https://nexapos-license-1.onrender.com/index.php';
 // blocked) - this replaces them with whatever's actually live the
 // moment the page loads, so the site never again quietly points new
 // visitors at a stale build the way the hardcoded links once did.
-// Which Windows download to offer. The desktop app needs Windows 10 or
-// newer (its engine imports a function that doesn't exist before Windows
-// 8, so on Windows 7 it doesn't even load), so Windows 7/8/8.1 get a
-// separate, tiny setup that opens NexaPOS in the browser instead. That
-// file never changes when the app updates - the web edition updates
-// itself - so it's linked directly rather than through latest_version.
-const LEGACY_WINDOWS_URL = 'downloads/NexaPOS-Setup-Windows7-8.exe';
+// Which Windows download to offer. Google's official desktop engine needs
+// Windows 10 or newer, so Windows 7/8/8.1 have their own installer built on a
+// patched engine (published by generator.html together with each release and
+// served by latest_version as windows_legacy_installer_url). That engine is
+// 64-bit only, so 32-bit Windows 7/8 gets the small browser setup instead - a
+// NexaPOS shortcut that opens the web edition in a browser already on the PC.
+// The browser setup never changes when the app updates (the web edition updates
+// itself), so it's linked directly rather than through latest_version.
+const BROWSER_SETUP_URL = 'downloads/NexaPOS-Setup-Windows7-8.exe';
+// Fixed-version fallback for the Windows 7/8 desktop installer, like the other
+// hrefs on this page: replaced by the live value once latest_version answers,
+// and set to null there if the newest release has no Windows 7/8 build.
+let legacyDesktopUrl = 'downloads/NexaPOS-Setup-Windows7-8-1.0.40.exe';
 let modernWindowsUrl = document.getElementById('windowsLink').getAttribute('href');
 const winSelect = document.getElementById('winVersion');
 const WIN_NOTES = {
   modern: 'Desktop app for Windows 10 or 11, 64-bit.',
-  legacy: 'A small setup that opens NexaPOS in Chrome, Edge or Firefox - one of them must already be installed. Works on 32-bit and 64-bit Windows 7, 8 and 8.1.',
+  legacy64: 'Desktop app for 64-bit Windows 7 (with Service Pack 1), 8 and 8.1 - installs like the Windows 10 version. Not sure if your PC is 64-bit? Right-click Computer, then Properties, and read "System type".',
+  legacy32: 'A small setup that opens NexaPOS in Chrome, Edge or Firefox - one of them must already be installed. For 32-bit Windows 7, 8 and 8.1.',
+  legacy64Missing: 'The Windows 7/8 desktop app for the newest version is not ready yet. This small setup opens NexaPOS in Chrome, Edge or Firefox meanwhile (one must already be installed).',
 };
 function updateWindowsDownload() {
-  const legacy = winSelect.value === 'legacy';
+  const choice = winSelect.value;
   const link = document.getElementById('windowsLink');
-  link.href = legacy ? LEGACY_WINDOWS_URL : modernWindowsUrl;
-  link.textContent = legacy ? 'Download Windows 7/8 setup' : 'Download installer';
-  document.getElementById('winNote').textContent = WIN_NOTES[legacy ? 'legacy' : 'modern'];
+  let href = modernWindowsUrl;
+  let label = 'Download installer';
+  let note = WIN_NOTES.modern;
+  if (choice === 'legacy64') {
+    if (legacyDesktopUrl) {
+      href = legacyDesktopUrl;
+      label = 'Download Windows 7/8 installer';
+      note = WIN_NOTES.legacy64;
+    } else {
+      href = BROWSER_SETUP_URL;
+      label = 'Download Windows 7/8 setup';
+      note = WIN_NOTES.legacy64Missing;
+    }
+  } else if (choice === 'legacy32') {
+    href = BROWSER_SETUP_URL;
+    label = 'Download Windows 7/8 setup';
+    note = WIN_NOTES.legacy32;
+  }
+  link.href = href;
+  link.textContent = label;
+  document.getElementById('winNote').textContent = note;
 }
 // Preselect from what the browser reports (Windows NT 6.1 = 7, 6.2 = 8,
-// 6.3 = 8.1, 10.0 = 10/11); the visitor can still change it.
+// 6.3 = 8.1, 10.0 = 10/11; "Win64"/"WOW64"/"x64" appear on 64-bit Windows);
+// the visitor can still change it.
 (function preselectWindowsVersion() {
-  const m = /Windows NT (\d+)\.(\d+)/.exec(navigator.userAgent);
-  if (m && (Number(m[1]) < 6 || (Number(m[1]) === 6 && Number(m[2]) <= 3))) winSelect.value = 'legacy';
+  const ua = navigator.userAgent;
+  const m = /Windows NT (\d+)\.(\d+)/.exec(ua);
+  if (m && (Number(m[1]) < 6 || (Number(m[1]) === 6 && Number(m[2]) <= 3))) {
+    winSelect.value = /Win64|WOW64|x64/i.test(ua) ? 'legacy64' : 'legacy32';
+  }
 })();
 winSelect.addEventListener('change', updateWindowsDownload);
 updateWindowsDownload();
@@ -417,8 +448,11 @@ fetch(LICENSE_SERVER + '?action=latest_version')
     if (!data.success) return;
     if (data.windows_installer_url) {
       modernWindowsUrl = data.windows_installer_url;
-      updateWindowsDownload();
     }
+    // Live answer wins over the fixed-version fallback, including "none":
+    // the newest release may have shipped without a Windows 7/8 build.
+    legacyDesktopUrl = data.windows_legacy_installer_url || null;
+    updateWindowsDownload();
     if (data.android_url) {
       document.getElementById('androidLink').href = data.android_url;
     }
