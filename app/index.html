@@ -322,21 +322,30 @@
       var workerScope = new URL('./', document.baseURI).pathname;
       window.NEXAPOS_SERVICE_WORKER_READY = navigator.serviceWorker
         .register(workerUrl, { scope: workerScope })
+        .then(activated)
         .then(function (registration) {
-          // register() is supposed to check for a changed worker script on
-          // every call, but Safari in particular has been unreliable about
-          // it in practice - confirmed for real: a plain refresh in iPhone
-          // Safari kept serving an old version well after a new one was
-          // live. update() explicitly re-requests the worker script
-          // bypassing normal HTTP caching (the one guarantee every browser
-          // does honor for this specific check, unlike the implicit check
-          // register() itself performs) - cheap and harmless when nothing
-          // changed, so it always runs, not just when this event fires.
+          // Checked here, AFTER this page's own worker is confirmed
+          // active - calling update() any earlier (tried once, reverted)
+          // raced with activated()'s own worker-state tracking: a newer
+          // worker discovered mid-wait can supersede the one being
+          // watched, which activated() correctly treats as "became
+          // redundant" and rejects on, even though a worker legitimately
+          // did activate, just a version later. That broke the offline
+          // cache shortly after this exact fix first shipped. update()
+          // is fire-and-forget and safe here: nothing further depends on
+          // its result. register() is supposed to check for a changed
+          // worker script on every call, but Safari in particular has
+          // been unreliable about it in practice - confirmed for real, a
+          // plain refresh in iPhone Safari kept serving an old version
+          // well after a new one was live. update() explicitly
+          // re-requests the worker script bypassing normal HTTP caching
+          // (the one guarantee every browser does honor for this
+          // specific check, unlike the implicit check register() itself
+          // performs), so it always runs, not just on the 'online' event.
           registration.update().catch(function () {});
           window.addEventListener('online', function () { registration.update(); });
           return registration;
         })
-        .then(activated)
         .catch(function (error) {
           console.warn('NexaPOS offline cache could not start:', error);
           return null;
