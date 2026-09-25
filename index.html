@@ -195,6 +195,20 @@
     color: var(--ink); background: var(--card);
     border: 1px solid var(--border); border-radius: 8px;
   }
+  .chip-soon {
+    display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 700; vertical-align: 1px;
+  }
+  .download-row.recommended { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+  .apple-help {
+    margin: -4px 0 12px; padding: 14px 16px; border: 1px dashed var(--border); border-radius: 12px;
+    font-size: 13px; color: var(--ink-soft); line-height: 1.55;
+  }
+  .apple-help summary { cursor: pointer; font-weight: 600; color: var(--ink); font-size: 13.5px; }
+  .apple-help ol { margin: 10px 0 8px; padding-left: 20px; }
+  .apple-help li { margin-bottom: 6px; }
+  .apple-help b { color: var(--ink); }
+  .apple-help .fine { margin: 8px 0 0; font-size: 12px; }
   .next-steps {
     margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border);
     font-size: 13px; color: var(--ink-soft);
@@ -289,8 +303,8 @@
       </div>
       <div class="feature">
         <div class="icon">🖥️</div>
-        <h3>Windows &amp; Android</h3>
-        <p>One app, same data, whichever device is closer to the till.</p>
+        <h3>Windows, Android, Mac &amp; iPhone</h3>
+        <p>One app, same data, whichever device is closer to the till. (iPhone and Mac use the browser version until the iOS app arrives.)</p>
       </div>
     </div>
   </div>
@@ -358,8 +372,28 @@
           </div>
           <a class="btn primary" id="androidLink" href="https://pub-2a7877d5b6bf40a18da4c1d6ed977081.r2.dev/NexaPOS-1.0.49.apk" download>Download</a>
         </div>
+        <div class="download-row" id="appleRow">
+          <div class="plat">
+            <div class="glyph">🍎</div>
+            <div>
+              <div class="name">Mac, iPhone &amp; iPad <span class="chip-soon">iOS app coming soon</span></div>
+              <div class="note">Use NexaPOS in Safari today - add it to your Home Screen and it opens like an app.</div>
+            </div>
+          </div>
+          <a class="btn primary" id="webPosLink" href="app/">Open NexaPOS</a>
+        </div>
+        <details class="apple-help" id="appleHelp">
+          <summary>How to put NexaPOS on your Home Screen (iPhone / iPad / Mac)</summary>
+          <ol>
+            <li>Tap <b>Open NexaPOS</b> above - in <b>Safari</b>, not inside another app.</li>
+            <li><b>iPhone / iPad:</b> tap the <b>Share</b> icon in Safari's toolbar, then choose <b>Add to Home Screen</b> and tap <b>Add</b>.<br>
+                <b>Mac:</b> in Safari choose <b>File &rarr; Add to Dock</b> (or in Chrome / Edge use the install icon in the address bar).</li>
+            <li>Open <b>NexaPOS</b> from your Home Screen (or Dock) like any other app. Once it has loaded, it keeps working without internet.</li>
+          </ol>
+          <p class="fine">The full native NexaPOS app for iPhone and iPad is on its way - we'll announce it here. Until then the browser version has the same activation, plans and sales screens.</p>
+        </details>
         <div class="next-steps">
-          <b>Next:</b> install the app and open it - you'll land on an activation screen. Choose a plan and pay in the app (card or M-Pesa); it activates by itself, and after that it runs fully offline. Prefer to pay another way? Message us on WhatsApp and we'll send you a license key to enter. Reinstalled the app or changed phone? Tap &ldquo;Already paid? Restore my license&rdquo; on that screen and use the email you paid with.
+          <b>Next:</b> install the app and open it - you'll land on an activation screen. Choose a plan and pay in the app (card or M-Pesa); it activates by itself, and after that it runs fully offline. Prefer to pay another way? Message us on WhatsApp and we'll send you a license key to enter. Reinstalled the app or changed phone? Tap &ldquo;Already paid? Restore my license&rdquo; on that screen and use the email you paid with. On an iPhone, iPad or Mac, tap <b>Open NexaPOS</b> and follow the Home Screen steps above - it is the same app and the same activation, in your browser until the iOS app arrives.
         </div>
       </div>
 
@@ -463,6 +497,22 @@ fetch(LICENSE_SERVER + '?action=latest_version')
 // it (either "Get NexaPOS" in the hero or "Get started" in the nav,
 // both point here) - showing it unprompted on scroll-past made the
 // page feel like it was pushing the form on every visitor.
+// An iPhone, iPad or Mac visitor: their row first, marked, with the Home Screen steps open.
+// (An iPad reports itself as a Mac, so a Mac that has a touch screen is an iPad.)
+(function offerAppleFirst() {
+  const ua = navigator.userAgent || '';
+  const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const mac = /Macintosh/.test(ua) && !iOS;
+  if (!iOS && !mac) return;
+  const row = document.getElementById('appleRow');
+  const help = document.getElementById('appleHelp');
+  const first = document.querySelector('#downloadsView .download-row');
+  row.classList.add('recommended');
+  if (first && first !== row) first.parentNode.insertBefore(row, first);
+  row.parentNode.insertBefore(help, row.nextSibling);
+  help.open = iOS;
+})();
+
 document.querySelectorAll('a[href="#get-started"]').forEach((link) => {
   link.addEventListener('click', () => {
     document.getElementById('get-started').classList.add('show');
