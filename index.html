@@ -302,7 +302,7 @@
 
       <div id="formView">
         <h2>Get NexaPOS</h2>
-        <p class="sub">Tell us where to reach you and grab the download - no payment needed yet. You'll get a license key from us separately to unlock the app.</p>
+        <p class="sub">Tell us where to reach you and grab the download - no payment needed yet. When you open the app you choose a plan and pay there, by card or M-Pesa, and it unlocks by itself.</p>
         <form id="regForm">
           <label for="name">Your name</label>
           <input id="name" required>
@@ -346,7 +346,7 @@
               <div class="note" id="winNote"></div>
             </div>
           </div>
-          <a class="btn primary" id="windowsLink" href="https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-1.0.46.exe" download>Download installer</a>
+          <a class="btn primary" id="windowsLink" href="https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-1.0.47.exe" download>Download installer</a>
         </div>
         <div class="download-row">
           <div class="plat">
@@ -356,10 +356,10 @@
               <div class="note">Android 8.0+</div>
             </div>
           </div>
-          <a class="btn primary" id="androidLink" href="https://pub-2a7877d5b6bf40a18da4c1d6ed977081.r2.dev/NexaPOS-1.0.46.apk" download>Download</a>
+          <a class="btn primary" id="androidLink" href="https://pub-2a7877d5b6bf40a18da4c1d6ed977081.r2.dev/NexaPOS-1.0.47.apk" download>Download</a>
         </div>
         <div class="next-steps">
-          <b>Next:</b> install the app, then reach out to us with your name/email to arrange payment. We'll generate your license key and send it over - enter it the first time the app opens and you're done, no internet needed after that.
+          <b>Next:</b> install the app and open it - you'll land on an activation screen. Choose a plan and pay in the app (card or M-Pesa); it activates by itself, and after that it runs fully offline. Prefer to pay another way? Message us on WhatsApp and we'll send you a license key to enter. Reinstalled the app or changed phone? Tap &ldquo;Already paid? Restore my license&rdquo; on that screen and use the email you paid with.
         </div>
       </div>
 
@@ -395,7 +395,7 @@ const BROWSER_SETUP_URL = 'downloads/NexaPOS-Setup-Windows7-8.exe';
 // Fixed-version fallback for the Windows 7/8 desktop installer, like the other
 // hrefs on this page: replaced by the live value once latest_version answers,
 // and set to null there if the newest release has no Windows 7/8 build.
-let legacyDesktopUrl = 'https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-Windows7-8-1.0.46.exe';
+let legacyDesktopUrl = 'https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-Windows7-8-1.0.47.exe';
 let modernWindowsUrl = document.getElementById('windowsLink').getAttribute('href');
 const winSelect = document.getElementById('winVersion');
 const WIN_NOTES = {
