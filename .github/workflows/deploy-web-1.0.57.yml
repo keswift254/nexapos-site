@@ -22,7 +22,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fL --retry 4 --retry-delay 2 \
-            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-68cc-8208-a346-a04bb0f35fa8/raw?se=2026-09-30T16%3A52%3A15Z&sp=r&sv=2026-02-06&sr=b&scid=1998300b-a9d6-514d-8bec-8c89cbe68acf&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T15%3A54%3A59Z&ske=2026-10-01T15%3A54%3A59Z&sks=b&skv=2026-02-06&sig=IR7JYlJye5IyiQXLbRPSUGexZGR%2BKuiyt66Z1SLifJQ%3D' \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-8de0-8208-a7ba-3ecd12a39cdf/raw?se=2026-09-30T20%3A37%3A55Z&sp=r&sv=2026-02-06&sr=b&scid=94300f22-d717-5de4-8dc3-edef0825ec82&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T19%3A02%3A21Z&ske=2026-10-01T19%3A02%3A21Z&sks=b&skv=2026-02-06&sig=6w3aiMG75fI6JOr5NPBhxbH2yaMurxIV6WPDZs%2BXtaM%3D' \
             -o /tmp/NexaPOS-Web-1.0.57-NameCrane.zip
           rm -rf /tmp/nexapos-web-1.0.57
           mkdir -p /tmp/nexapos-web-1.0.57
