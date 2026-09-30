@@ -1,0 +1,71 @@
+name: Deploy NexaPOS Web 1.0.55
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-web-1.0.55.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download verified 1.0.55 NameCrane web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-35d4-8208-94b9-845a4c3e0639/raw?se=2026-09-30T01%3A34%3A15Z&sp=r&sv=2026-02-06&sr=b&scid=676937df-01ad-5dfc-84d4-d382ee9638f0&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T00%3A18%3A01Z&ske=2026-10-01T00%3A18%3A01Z&sks=b&skv=2026-02-06&sig=k7EJ3TJWszaOD7v2i8TkwpH3zt3rdr4U23Q6HuR5UQk%3D' \
+            -o /tmp/NexaPOS-Web-1.0.55-NameCrane.zip
+          mkdir -p /tmp/nexapos-web-1.0.55
+          unzip -q /tmp/NexaPOS-Web-1.0.55-NameCrane.zip -d /tmp/nexapos-web-1.0.55
+          test -s /tmp/nexapos-web-1.0.55/main.dart.js
+          test -s /tmp/nexapos-web-1.0.55/version.json
+          grep -q '"version":"1.0.55"' /tmp/nexapos-web-1.0.55/version.json
+
+      - name: Replace site app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp app/.htaccess /tmp/nexapos-app.htaccess
+          rm -rf app
+          mkdir app
+          cp -a /tmp/nexapos-web-1.0.55/. app/
+          cp /tmp/nexapos-app.htaccess app/.htaccess
+          grep -q '"version":"1.0.55"' app/version.json
+          test -s app/main.dart.js
+          test -s app/nexapos_service_worker.js
+
+      - name: Commit web POS 1.0.55
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'NexaPOS Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A app
+          if git diff --cached --quiet; then
+            echo 'Web app is already 1.0.55; nothing to commit.'
+          else
+            git commit -m 'Deploy web POS 1.0.55'
+            git push origin HEAD:main
+          fi
+
+      - name: Record live endpoints after repository update
+        shell: bash
+        run: |
+          set +e
+          echo '=== GitHub Pages ==='
+          curl -fsSL --connect-timeout 10 --max-time 30 \
+            'https://keswift254.github.io/nexapos-site/app/version.json' || true
+          echo
+          echo '=== NameCrane candidate ==='
+          curl -fsSL --connect-timeout 10 --max-time 30 \
+            'https://nexapos.cc/app/version.json' || true
+          echo
