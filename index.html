@@ -371,7 +371,7 @@
               <div class="note">Android 8.0+</div>
             </div>
           </div>
-          <a class="btn primary" id="androidLink" href="https://keswift254.github.io/nexapos-site/downloads/NexaPOS-1.0.57.apk" download>Download</a>
+          <a class="btn primary" id="androidLink" href="https://pub-2a7877d5b6bf40a18da4c1d6ed977081.r2.dev/NexaPOS-1.0.57.apk" download>Download</a>
         </div>
         <div class="download-row" id="appleRow">
           <div class="plat">
@@ -413,11 +413,8 @@
 <script>
 const LICENSE_SERVER = 'https://license.nexapos.cc/index.php';
 
-// The download buttons' hrefs above are a fixed-version fallback (kept
-// so the page still offers a real download if this fetch fails or is
-// blocked) - this replaces them with whatever's actually live the
-// moment the page loads, so the site never again quietly points new
-// visitors at a stale build the way the hardcoded links once did.
+// Keep the bundled release links until the API advertises this release or
+// a newer one. The website can ship before its in-app update is published.
 // Which Windows download to offer. Google's official desktop engine needs
 // Windows 10 or newer, so Windows 7/8/8.1 have their own installer built on a
 // patched engine (published by generator.html together with each release and
@@ -477,13 +474,25 @@ function updateWindowsDownload() {
 winSelect.addEventListener('change', updateWindowsDownload);
 updateWindowsDownload();
 
+const BUNDLED_DOWNLOAD_VERSION = [1, 0, 57];
+function isAtLeastBundledVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:\D|$)/.exec(String(version || ''));
+  if (!match) return false;
+  const parts = match.slice(1).map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (parts[i] !== BUNDLED_DOWNLOAD_VERSION[i]) {
+      return parts[i] > BUNDLED_DOWNLOAD_VERSION[i];
+    }
+  }
+  return true;
+}
 fetch(LICENSE_SERVER + '?action=latest_version&_=' + Date.now(), { cache: 'no-store' })
   .then((res) => {
     if (!res.ok) throw new Error('Could not load current release');
     return res.json();
   })
   .then((data) => {
-    if (!data.success) return;
+    if (!data.success || !isAtLeastBundledVersion(data.version)) return;
     if (data.windows_installer_url) {
       modernWindowsUrl = data.windows_installer_url;
     }
