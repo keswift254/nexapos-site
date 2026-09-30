@@ -1,0 +1,71 @@
+name: Deploy NexaPOS Web 1.0.56
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-web-1.0.56.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download verified 1.0.56 web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-5a10-8208-b3ab-8901570ec6e2/raw?se=2026-09-30T12%3A15%3A10Z&sp=r&sv=2026-02-06&sr=b&scid=7bfe6e64-1cf8-5a2a-9dd0-aa7e83f9cbef&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T12%3A09%3A14Z&ske=2026-10-01T12%3A09%3A14Z&sks=b&skv=2026-02-06&sig=skyREcBQjb1RCf2TaQ6kDlMPedLQV7Z5xliflr9hmhw%3D' \
+            -o /tmp/NexaPOS-Web-1.0.56-NameCrane.zip
+          rm -rf /tmp/nexapos-web-1.0.56
+          mkdir -p /tmp/nexapos-web-1.0.56
+          unzip -q /tmp/NexaPOS-Web-1.0.56-NameCrane.zip -d /tmp/nexapos-web-1.0.56
+          test -s /tmp/nexapos-web-1.0.56/main.dart.js
+          grep -q '"version":"1.0.56"' /tmp/nexapos-web-1.0.56/version.json
+
+      - name: Replace site app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp app/.htaccess /tmp/nexapos-app.htaccess
+          rm -rf app
+          mkdir app
+          cp -a /tmp/nexapos-web-1.0.56/. app/
+          cp /tmp/nexapos-app.htaccess app/.htaccess
+          grep -q '"version":"1.0.56"' app/version.json
+          test -s app/main.dart.js
+          test -s app/nexapos_service_worker.js
+
+      - name: Commit web POS 1.0.56
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'NexaPOS Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A app
+          git commit -m 'Deploy web POS 1.0.56'
+          git push origin HEAD:main
+
+      - name: Wait for live NameCrane 1.0.56
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://nexapos.cc/app/version.json'
+          for attempt in $(seq 1 36); do
+            body="$(curl -fsSL --connect-timeout 10 --max-time 30 "$url" || true)"
+            echo "Attempt $attempt: $body"
+            if printf '%s' "$body" | grep -q '"version":"1.0.56"'; then
+              echo "VERIFIED $url is 1.0.56"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "NameCrane did not reach 1.0.56 in time" >&2
+          exit 1
