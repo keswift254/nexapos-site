@@ -1,0 +1,161 @@
+name: Stage NexaPOS 1.0.57 public release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stage-release-1.0.57.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download final merged 1.0.57 artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nx157/win /tmp/nx157/win7 /tmp/nx157/apk /tmp/nx157/web
+
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-aa78-8208-97d5-b3467d66f4aa/raw?se=2026-09-30T20%3A44%3A30Z&sp=r&sv=2026-02-06&sr=b&scid=71247512-c5bd-503e-a0fe-9e5ee7ce3070&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T19%3A50%3A26Z&ske=2026-10-01T19%3A50%3A26Z&sks=b&skv=2026-02-06&sig=rbH5F3tRi895Ph6VFsIidmdKJy9NfOuo9rMLsZd98zQ%3D' \
+            -o /tmp/nx157/win.zip
+
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-dcf4-8208-889f-6f86ec80df27/raw?se=2026-09-30T20%3A44%3A30Z&sp=r&sv=2026-02-06&sr=b&scid=d16e0931-8a2e-557a-8012-a961c205ff1f&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T19%3A30%3A11Z&ske=2026-10-01T19%3A30%3A11Z&sks=b&skv=2026-02-06&sig=keMbsZNqDJJEw2WKAtKm3ijoI1iQ93uHAiqMOqDyCMQ%3D' \
+            -o /tmp/nx157/win7.zip
+
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-f920-8208-bd7f-46e3953c1809/raw?se=2026-09-30T20%3A44%3A44Z&sp=r&sv=2026-02-06&sr=b&scid=8b1be42a-32b0-5a70-8b51-54a848ed8765&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T17%3A55%3A41Z&ske=2026-10-01T17%3A55%3A41Z&sks=b&skv=2026-02-06&sig=PfqCJMVZ8NHbFTUka5Zg%2BAZyTrw%2Bd1fMQlFoV5Sdj5Q%3D' \
+            -o /tmp/nx157/apk.zip
+
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-6b5c-8208-8a79-4cb1eee3ea4c/raw?se=2026-09-30T20%3A44%3A30Z&sp=r&sv=2026-02-06&sr=b&scid=f6ebda27-67b6-51d4-bf4a-6259c3dbf26a&skoid=f2622f62-3126-45cd-85e0-0bc840c3afdc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T17%3A40%3A53Z&ske=2026-10-01T17%3A40%3A53Z&sks=b&skv=2026-02-06&sig=A7khqnZ7IOMJlLJJq8MuhLZGhEB6Uvb8lx9DxGzfufA%3D' \
+            -o /tmp/nx157/web.zip
+
+          unzip -q /tmp/nx157/win.zip -d /tmp/nx157/win
+          unzip -q /tmp/nx157/win7.zip -d /tmp/nx157/win7
+          unzip -q /tmp/nx157/apk.zip -d /tmp/nx157/apk
+          unzip -q /tmp/nx157/web.zip -d /tmp/nx157/web
+
+          cp "$(find /tmp/nx157/win -type f -name '*.exe' -print -quit)" /tmp/NexaPOS-Setup-1.0.57.exe
+          cp "$(find /tmp/nx157/win7 -type f -name '*.exe' -print -quit)" /tmp/NexaPOS-Setup-Windows7-8-1.0.57.exe
+          cp "$(find /tmp/nx157/apk -type f -name '*.apk' -print -quit)" /tmp/NexaPOS-1.0.57.apk
+
+          echo '99e06ce630cb3f1889bbd378061aa09acc7b8dfc42934db7e48941ed3954e252  /tmp/NexaPOS-Setup-1.0.57.exe' | sha256sum -c -
+          echo '7a6d065b4c3d607da7dd992c6d8723db6666c5c96474dc93ffdee25e4e66bedb  /tmp/NexaPOS-Setup-Windows7-8-1.0.57.exe' | sha256sum -c -
+          echo 'ebcf056fd94eb72c70e1fd3b4644ece8282227a630b15147a14829e63e0c115b  /tmp/NexaPOS-1.0.57.apk' | sha256sum -c -
+          grep -q '"version":"1.0.57"' /tmp/nx157/web/version.json
+
+      - name: Commit web app and public downloads without checking out large old blobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir /tmp/site
+          cd /tmp/site
+          git init
+          git config user.name 'NexaPOS Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --filter=blob:none --depth=1 origin main
+          git read-tree FETCH_HEAD
+
+          git show FETCH_HEAD:app/.htaccess > /tmp/app.htaccess
+          git show FETCH_HEAD:index.html > index.html
+
+          rm -rf app
+          mkdir -p app downloads
+          cp -a /tmp/nx157/web/. app/
+          cp /tmp/app.htaccess app/.htaccess
+          cp /tmp/NexaPOS-Setup-1.0.57.exe downloads/
+          cp /tmp/NexaPOS-Setup-Windows7-8-1.0.57.exe downloads/
+          cp /tmp/NexaPOS-1.0.57.apk downloads/
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(
+              r'https://nexapos-downloads\.condojuniur\.workers\.dev/NexaPOS-Setup-[0-9.]+\.exe',
+              '/downloads/NexaPOS-Setup-1.0.57.exe',
+              s,
+          )
+          s=re.sub(
+              r'https://pub-2a7877d5b6bf40a18da4c1d6ed977081\.r2\.dev/NexaPOS-[0-9.]+\.apk',
+              '/downloads/NexaPOS-1.0.57.apk',
+              s,
+          )
+          s=re.sub(
+              r"let legacyDesktopUrl = '[^']*';",
+              "let legacyDesktopUrl = '/downloads/NexaPOS-Setup-Windows7-8-1.0.57.exe';",
+              s,
+          )
+          s=re.sub(
+              r"const BROWSER_SETUP_URL = '[^']*';",
+              "const BROWSER_SETUP_URL = '/downloads/NexaPOS-Setup-Windows7-8-1.0.57.exe';",
+              s,
+          )
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          git add -A app index.html \
+            downloads/NexaPOS-Setup-1.0.57.exe \
+            downloads/NexaPOS-Setup-Windows7-8-1.0.57.exe \
+            downloads/NexaPOS-1.0.57.apk
+
+          tree="$(git write-tree)"
+          parent="$(git rev-parse FETCH_HEAD)"
+          commit="$(printf '%s\n' 'Deploy NexaPOS 1.0.57 public release' | git commit-tree "$tree" -p "$parent")"
+          git push origin "$commit":main
+
+      - name: Wait for nexapos.cc and verify all public 1.0.57 files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_text() {
+            local url="$1" pattern="$2"
+            for attempt in $(seq 1 48); do
+              body="$(curl -fsSL --connect-timeout 10 --max-time 60 "$url" || true)"
+              if printf '%s' "$body" | grep -q "$pattern"; then
+                echo "VERIFIED $url"
+                return 0
+              fi
+              echo "Attempt $attempt: waiting for $url"
+              sleep 10
+            done
+            return 1
+          }
+
+          wait_hash() {
+            local url="$1" expected="$2" out="$3"
+            for attempt in $(seq 1 48); do
+              rm -f "$out"
+              if curl -fsSL --connect-timeout 10 --max-time 180 "$url" -o "$out"; then
+                actual="$(sha256sum "$out" | awk '{print $1}')"
+                if [ "$actual" = "$expected" ]; then
+                  echo "VERIFIED $url $actual"
+                  return 0
+                fi
+                echo "Attempt $attempt: $url hash $actual"
+              else
+                echo "Attempt $attempt: waiting for $url"
+              fi
+              sleep 10
+            done
+            return 1
+          }
+
+          wait_text 'https://nexapos.cc/app/version.json' '"version":"1.0.57"'
+          wait_hash 'https://nexapos.cc/downloads/NexaPOS-Setup-1.0.57.exe' \
+            '99e06ce630cb3f1889bbd378061aa09acc7b8dfc42934db7e48941ed3954e252' /tmp/live-win.exe
+          wait_hash 'https://nexapos.cc/downloads/NexaPOS-Setup-Windows7-8-1.0.57.exe' \
+            '7a6d065b4c3d607da7dd992c6d8723db6666c5c96474dc93ffdee25e4e66bedb' /tmp/live-win7.exe
+          wait_hash 'https://nexapos.cc/downloads/NexaPOS-1.0.57.apk' \
+            'ebcf056fd94eb72c70e1fd3b4644ece8282227a630b15147a14829e63e0c115b' /tmp/live.apk
