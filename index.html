@@ -361,7 +361,7 @@
               <div class="note" id="winNote"></div>
             </div>
           </div>
-          <a class="btn primary" id="windowsLink" href="/downloads/NexaPOS-Setup-1.0.57.exe" download>Download installer</a>
+          <a class="btn primary" id="windowsLink" href="https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-1.0.57.exe" download>Download installer</a>
         </div>
         <div class="download-row">
           <div class="plat">
@@ -371,7 +371,7 @@
               <div class="note">Android 8.0+</div>
             </div>
           </div>
-          <a class="btn primary" id="androidLink" href="/downloads/NexaPOS-1.0.57.apk" download>Download</a>
+          <a class="btn primary" id="androidLink" href="https://keswift254.github.io/nexapos-site/downloads/NexaPOS-1.0.57.apk" download>Download</a>
         </div>
         <div class="download-row" id="appleRow">
           <div class="plat">
@@ -426,11 +426,11 @@ const LICENSE_SERVER = 'https://license.nexapos.cc/index.php';
 // NexaPOS shortcut that opens the web edition in a browser already on the PC.
 // The browser setup never changes when the app updates (the web edition updates
 // itself), so it's linked directly rather than through latest_version.
-const BROWSER_SETUP_URL = '/downloads/NexaPOS-Setup-Windows7-8-1.0.57.exe';
+const BROWSER_SETUP_URL = 'https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-Windows7-8-1.0.57.exe';
 // Fixed-version fallback for the Windows 7/8 desktop installer, like the other
 // hrefs on this page: replaced by the live value once latest_version answers,
 // and set to null there if the newest release has no Windows 7/8 build.
-let legacyDesktopUrl = '/downloads/NexaPOS-Setup-Windows7-8-1.0.57.exe';
+let legacyDesktopUrl = 'https://nexapos-downloads.condojuniur.workers.dev/NexaPOS-Setup-Windows7-8-1.0.57.exe';
 let modernWindowsUrl = document.getElementById('windowsLink').getAttribute('href');
 const winSelect = document.getElementById('winVersion');
 const WIN_NOTES = {
