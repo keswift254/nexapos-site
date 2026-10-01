@@ -1,0 +1,52 @@
+name: Stage live NexaPOS web 1.0.58 in site source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stage-web-1.0.58.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified release web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nx-web-158
+          curl -fL --retry 4 --retry-delay 2 \
+            'https://github.com/keswift254/nexapos-remote/releases/download/v1.0.58/NexaPOS-Web-1.0.58-NameCrane.zip' \
+            -o /tmp/nx-web-158.zip
+          unzip -q /tmp/nx-web-158.zip -d /tmp/nx-web-158
+          test -s /tmp/nx-web-158/main.dart.js
+          grep -q '"version":"1.0.58"' /tmp/nx-web-158/version.json
+          echo '9bbe3d181f17eb9367a6d7751d0715f68c261bfe33079616b93e10e758b43f70  /tmp/nx-web-158/main.dart.js' | sha256sum -c -
+
+      - name: Commit web bundle while retaining the live MIME configuration
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir /tmp/nx-site
+          cd /tmp/nx-site
+          git init
+          git config user.name 'NexaPOS Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --filter=blob:none --depth=1 origin main
+          git read-tree FETCH_HEAD
+          git show FETCH_HEAD:app/.htaccess > /tmp/nx-app.htaccess
+          rm -rf app
+          mkdir app
+          cp -a /tmp/nx-web-158/. app/
+          cp /tmp/nx-app.htaccess app/.htaccess
+          git add -A app
+          tree="$(git write-tree)"
+          parent="$(git rev-parse FETCH_HEAD)"
+          commit="$(printf '%s\n' 'Stage live web POS 1.0.58' | git commit-tree "$tree" -p "$parent")"
+          git push origin "$commit":main
