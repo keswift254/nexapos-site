@@ -144,7 +144,9 @@
     '.nxc{--nxc-me:#0078fe;--nxc-them:#e9e9eb;--nxc-them-ink:#14141f;--nxc-bg:#fff;--nxc-ink:#14141f;--nxc-soft:#6b6b80;--nxc-line:#e6e6f0;--nxc-field:#f4f4f8;--nxc-err:#b91c1c;font:14px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--nxc-ink)}',
     '@media (prefers-color-scheme:dark){.nxc{--nxc-them:#2b2d3a;--nxc-them-ink:#eef0fb;--nxc-bg:#161826;--nxc-ink:#eef0fb;--nxc-soft:#9aa0b4;--nxc-line:rgba(255,255,255,.1);--nxc-field:#0f1019;--nxc-err:#fca5a5}}',
     '.nxc *{box-sizing:border-box}',
-    '.nxc-fab{position:fixed;right:24px;bottom:96px;width:58px;height:58px;border:0;border-radius:50%;background:var(--nxc-me);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;z-index:100;transition:transform .15s ease}',
+    '.nxc-floaters{position:fixed;right:24px;bottom:24px;right:calc(24px + env(safe-area-inset-right));bottom:calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:14px;z-index:100}',
+    '.nxc-floaters .whatsapp-fab{position:relative;right:auto;bottom:auto;flex:none;margin:0}',
+    '.nxc-fab{position:relative;flex:none;width:58px;height:58px;border:0;border-radius:50%;background:var(--nxc-me);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;transition:transform .15s ease}',
     '.nxc-fab:hover{transform:scale(1.08)}.nxc-fab:focus-visible,.nxc button:focus-visible,.nxc input:focus-visible,.nxc textarea:focus-visible{outline:3px solid color-mix(in srgb,var(--nxc-me) 55%,transparent);outline-offset:2px}',
     '.nxc-fab svg{width:28px;height:28px;fill:#fff}',
     '.nxc-badge{position:absolute;top:-2px;right:-2px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#e11d48;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--nxc-bg)}',
@@ -332,6 +334,7 @@
   fab.innerHTML = ICON_CHAT;
   var badge = h('span', { class: 'nxc-badge', hidden: true, 'aria-hidden': 'true' });
   fab.appendChild(badge);
+  var floaters = h('div', { class: 'nxc-floaters' }, [fab]);
 
   var newBtn = h('button', { type: 'button', 'aria-label': 'Start a new chat', title: 'New chat', text: '+', hidden: true, onclick: function () { confirmBox.classList.add('show'); } });
   var closeBtn = h('button', { type: 'button', 'aria-label': 'Close chat', title: 'Close', text: '×', onclick: function () { setOpen(false); } });
@@ -413,7 +416,7 @@
   var lightbox = h('div', { class: 'nxc-lightbox', onclick: function () { lightbox.classList.remove('show'); } }, [lightboxImg]);
 
   var panel = h('section', { class: 'nxc-panel', role: 'dialog', 'aria-label': 'NexaPOS support chat' }, [head, confirmBox, botView, form, chat]);
-  root.appendChild(fab);
+  root.appendChild(floaters);
   root.appendChild(panel);
   root.appendChild(lightbox);
 
@@ -928,6 +931,8 @@
   function mount() {
     document.head.appendChild(styleTag);
     document.body.appendChild(root);
+    var whatsapp = document.querySelector('.whatsapp-fab');
+    if (whatsapp) floaters.appendChild(whatsapp);
     updateViewport();
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', updateViewport);

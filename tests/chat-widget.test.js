@@ -36,7 +36,12 @@ function page(mobile) {
     get className() { return [...this.classes].join(' '); }
     set textContent(value) { this._text = String(value); this.children = []; }
     get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
-    appendChild(child) { this.children.push(child); return child; }
+    appendChild(child) {
+      if (child.parent) child.parent.children = child.parent.children.filter(item => item !== child);
+      child.parent = this;
+      this.children.push(child);
+      return child;
+    }
     setAttribute(key, value) { this.attributes[key] = value; }
     addEventListener(key, handler) { this.handlers[key] = handler; }
     click() { if (this.handlers.click) this.handlers.click({ preventDefault() {} }); }
@@ -48,11 +53,16 @@ function page(mobile) {
     handlers: {},
     addEventListener(key, handler) { this.handlers[key] = handler; }
   };
+  const whatsapp = new Element('a');
+  whatsapp.className = 'whatsapp-fab';
+  const body = new Element('body');
+  body.appendChild(whatsapp);
   const document = {
     currentScript: { getAttribute: () => null, src: 'https://nexapos.cc/chat.js' },
-    head: new Element('head'), body: new Element('body'),
+    head: new Element('head'), body,
     createElement: tag => new Element(tag),
     createTextNode: value => ({ textContent: value }),
+    querySelector: selector => selector === '.whatsapp-fab' ? whatsapp : null,
     addEventListener() {}
   };
   const window = {
@@ -73,7 +83,7 @@ function page(mobile) {
     return null;
   }
   function button(text) { return find(node => node.tagName === 'button' && node.textContent === text); }
-  return { window, viewport, find, button };
+  return { window, viewport, find, button, whatsapp };
 }
 
 test('returning from the agent form restores quick-answer topics', () => {
@@ -100,4 +110,14 @@ test('mobile support opens without forcing the keyboard and tracks the visible v
   app.viewport.handlers.resize();
   assert.equal(root.styles['--nxc-view-height'], '350px');
   assert.equal(root.styles['--nxc-view-top'], '42px');
+});
+
+test('support and WhatsApp buttons share one floating stack', () => {
+  const app = page(true);
+  const floaters = app.find(node => node.classes && node.classes.has('nxc-floaters'));
+  assert.ok(floaters);
+  assert.equal(floaters.children.length, 2);
+  assert.ok(floaters.children[0].classes.has('nxc-fab'));
+  assert.equal(floaters.children[1], app.whatsapp);
+  assert.equal(app.whatsapp.parent, floaters);
 });
