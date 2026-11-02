@@ -210,6 +210,7 @@
   .apple-help summary { cursor: pointer; font-weight: 600; color: var(--ink); font-size: 13.5px; }
   .apple-help ol { margin: 10px 0 8px; padding-left: 20px; }
   .apple-help li { margin-bottom: 6px; }
+  .apple-help ul { margin: 6px 0 8px; padding-left: 18px; }
   .apple-help b { color: var(--ink); }
   .apple-help .fine { margin: 8px 0 0; font-size: 12px; }
   .next-steps {
@@ -390,7 +391,11 @@
           <summary>How to put NexaPOS on your Home Screen (iPhone / iPad / Mac)</summary>
           <ol>
             <li>Tap <b>Open NexaPOS</b> above - in <b>Safari</b>, not inside another app.</li>
-            <li><b>iPhone / iPad:</b> tap the <b>Share</b> icon in Safari's toolbar, then choose <b>Add to Home Screen</b> and tap <b>Add</b>.<br>
+            <li><b>iPhone / iPad:</b> tap the <b>Share</b> icon in Safari's toolbar, then choose <b>Add to Home Screen</b>. Before you tap <b>Add</b>, look at <b>Open as Web App</b>:
+              <ul>
+                <li><b>Off</b> - the icon opens NexaPOS in Safari, with the shop you already set up there. Choose this if you have already started using NexaPOS in Safari.</li>
+                <li><b>On</b> - the icon opens a full-screen app with its <b>own, separate data</b> (iPhone keeps it apart from Safari). Choose this for a fresh start. If your shop already exists, tap <b>Join an existing shop</b> and enter an invite code from your other device (Settings &gt; Sync &amp; Invites &gt; Invite a device) instead of setting up a new one.</li>
+              </ul>
                 <b>Mac:</b> in Safari choose <b>File &rarr; Add to Dock</b> (or in Chrome / Edge use the install icon in the address bar).</li>
             <li>Open <b>NexaPOS</b> from your Home Screen (or Dock) like any other app. Once it has loaded, it keeps working without internet.</li>
           </ol>
@@ -620,7 +625,7 @@ document.getElementById('lookupForm').addEventListener('submit', async (e) => {
 </script>
 
 <!-- Support chat: chat.js adds its own button and window (replies are emailed to the visitor). -->
-<script src="chat.js?v=4" defer></script>
+<script src="chat.js?v=5" defer></script>
 
 </body>
 </html>
