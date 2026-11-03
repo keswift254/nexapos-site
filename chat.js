@@ -61,8 +61,8 @@
     },
     {
       id: 'browser', title: 'Browser version asks me to activate',
-      words: ['browser', 'cleared', 'clear browsing', 'cleared data', 'logged out', 'safari', 'chrome', 'home screen', 'web version', 'iphone', 'ipad', 'mac'],
-      answer: 'The browser version keeps its data in the browser. If you clear browsing data, or open it in another browser, it shows the activation screen again - that is only the browser forgetting.\n\nIf the browser was an extra till, your shop\'s data is safe on your main device. Create a fresh invite there (Settings > Sync & Invites > Invite a device) and in the browser choose "Join an existing shop". Or tap "Already paid? Restore my license" and use the email you paid with.\n\nIf the browser was the only place you used NexaPOS, do not clear its data again and tell an agent.'
+      words: ['browser', 'cleared', 'clear browsing', 'cleared data', 'logged out', 'safari', 'chrome', 'home screen', 'web version', 'iphone', 'ipad', 'mac', 'new shop'],
+      answer: 'The browser version keeps its data in the browser. If you clear browsing data, or open it in another browser, it shows the activation screen again - that is only the browser forgetting.\n\nIf the browser was an extra till, your shop\'s data is safe on your main device. Create a fresh invite there (Settings > Sync & Invites > Invite a device) and in the browser choose "Join an existing shop". Or tap "Already paid? Restore my license" and use the email you paid with.\n\nOn an iPhone or iPad, an icon added to the Home Screen can open a separate copy with its own, empty data, so it asks to set up a new shop. Do not set one up: choose "Join an existing shop" and enter an invite code from your other device. Or remove the icon, add it again and switch "Open as Web App" OFF, so it opens in Safari with your shop.\n\nIf the browser was the only place you used NexaPOS, do not clear its data again and tell an agent.'
     },
     {
       id: 'backup', title: 'Backup & lost data',
