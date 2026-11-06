@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>NexaPOS Lite - speed test</title>
+  <style>
+    body { margin: 0; padding: 16px; background: #f4f5fa; color: #14141f; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+    .card { max-width: 640px; margin: 0 auto 12px; background: #fff; border-radius: 12px; padding: 16px; }
+    button { font-size: 20px; font-weight: 600; padding: 14px 22px; border: 0; border-radius: 10px; background: #4f46e5; color: #fff; -webkit-appearance: none; }
+    button[disabled] { opacity: .5; }
+    pre { white-space: pre-wrap; word-wrap: break-word; font-size: 16px; line-height: 1.5; margin: 12px 0 0; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>NexaPOS Lite - speed test</h1>
+    <p>This measures how long a cashier login will take on this iPad. Tap the button, wait until it says <b>Done</b> (it can take up to a minute on an old iPad), then read the result lines to the person helping you.</p>
+    <button id="start" type="button">Start the test</button>
+    <pre id="out">Not started.</pre>
+  </div>
+  <script src="bcrypt.min.js?v=1"></script>
+  <script>
+    (function () {
+      // A real password hash made by the NexaPOS app for the password "Passw0rd!" (the same kind every shop's cashiers have).
+      var HASH = '$2a$10$IuJI8s2zsy6jNzJ57dCIV.hqdQmNiZpk/FX48eMd9WgbcII/4uncG';
+      var PASSWORD = 'Passw0rd!';
+      var lines = [];
+      var out = document.getElementById('out');
+      var button = document.getElementById('start');
+
+      function log(text) {
+        lines.push(text);
+        out.innerHTML = '';
+        out.appendChild(document.createTextNode(lines.join('\n')));
+      }
+
+      function describe() {
+        var ua = navigator.userAgent || 'unknown';
+        var ios = /OS (\d+)[_.](\d+)(?:[_.](\d+))?/.exec(ua);
+        var storage = 'no';
+        try { window.localStorage.setItem('p', '1'); window.localStorage.removeItem('p'); storage = 'yes'; } catch (e) { storage = 'NO (private browsing?)'; }
+        log('Browser: ' + ua);
+        if (ios) { log('iOS version: ' + ios[1] + '.' + ios[2] + (ios[3] ? '.' + ios[3] : '')); }
+        log('Can save data: ' + storage);
+        log('Network requests: ' + (typeof XMLHttpRequest !== 'undefined' ? 'yes' : 'NO'));
+        log('Secure random: ' + ((window.crypto && window.crypto.getRandomValues) ? 'yes' : 'no (will use a fallback)'));
+        log('');
+      }
+
+      function cpu() {
+        var start = new Date().getTime();
+        var x = 0;
+        for (var i = 0; i < 3000000; i++) { x = (x + i * 7) % 1000003; }
+        var ms = new Date().getTime() - start;
+        log('Plain speed test (3 million steps): ' + ms + ' ms' + (x < 0 ? '!' : ''));
+      }
+
+      function runCompare(label, cb) {
+        var start = new Date().getTime();
+        var lib = window.dcodeIO && window.dcodeIO.bcrypt;
+        if (!lib) { log(label + ': the password checker did not load.'); cb(); return; }
+        lib.compare(PASSWORD, HASH, function (error, matches) {
+          var ms = new Date().getTime() - start;
+          log(label + ': ' + (error ? 'ERROR ' + error.message : (matches ? 'correct password accepted' : 'WRONG RESULT')) + ' in ' + (ms / 1000).toFixed(1) + ' seconds');
+          cb(ms);
+        });
+      }
+
+      button.onclick = function () {
+        button.disabled = true;
+        lines = [];
+        describe();
+        cpu();
+        log('Checking a password (this is the wait a cashier would have at login)...');
+        runCompare('Login check 1', function (first) {
+          runCompare('Login check 2', function (second) {
+            var best = Math.min(first || 1e9, second || 1e9);
+            log('');
+            log('Done. A login takes about ' + (best / 1000).toFixed(1) + ' seconds on this iPad.');
+            button.disabled = false;
+          });
+        });
+      };
+    }());
+  </script>
+</body>
+</html>

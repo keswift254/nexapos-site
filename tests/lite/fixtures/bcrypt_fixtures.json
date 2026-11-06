@@ -1,0 +1,33 @@
+{
+  "made_by": "package:bcrypt BCrypt.hashpw(password, BCrypt.gensalt())",
+  "cases": [
+    {
+      "password": "Passw0rd!",
+      "hash": "$2a$10$IuJI8s2zsy6jNzJ57dCIV.hqdQmNiZpk/FX48eMd9WgbcII/4uncG"
+    },
+    {
+      "password": "admin",
+      "hash": "$2a$10$HkGRNsZtTtmVE6h5t.dnW.V/4.pTqyzxMWX1zhG00KaUADth6CotK"
+    },
+    {
+      "password": "1234",
+      "hash": "$2a$10$7TAkw80HRb41ZjYTZsXAPuwC6qwi1kRPKrd8MhCaNqrQFSqcY8.lW"
+    },
+    {
+      "password": "a much longer pass phrase with spaces 2026",
+      "hash": "$2a$10$64h75GvvVnAtHbrS78X98.7KbJTQ0i5qIM7LpeiZzQ3dESHSVhOEW"
+    },
+    {
+      "password": "Wanjiru@2026#",
+      "hash": "$2a$10$r.V3ANEmVOG.d42ZRVhcsuVLo8TWGKOQldyc/exbjgvEOBjQe4m/."
+    },
+    {
+      "password": "café-über-€100",
+      "hash": "$2a$10$yvyhzhNDGMV2MraDPEdDBOHyChoxhPY0gZjGAePPl7tdbiTkesUvm"
+    },
+    {
+      "password": "",
+      "hash": "$2a$10$YxZaL4mm49/SVgw/XdsEg.sKGPmAl8X5Pk.Xs8DaVijS0vct0kOuS"
+    }
+  ]
+}
