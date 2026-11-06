@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Back to NexaPOS</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f7fb; --ink: #14141f; --ink-soft: #55556b; --accent: #4f46e5; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b0c14; --ink: #eef0fb; --ink-soft: #9aa0b4; --accent: #6366f1; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    main { max-width: 540px; margin: 16vh auto; padding: 24px; text-align: center; }
+    h1 { font-size: 28px; margin: 0 0 16px; letter-spacing: -0.02em; }
+    p { color: var(--ink-soft); margin: 0 0 24px; }
+    a { display: inline-block; padding: 12px 24px; background: var(--accent); color: white; border-radius: 10px; text-decoration: none; font-weight: 600; box-shadow: 0 12px 28px -14px rgba(79,70,229,0.5); transition: transform 0.1s ease; }
+    a:active { transform: translateY(1px); }
+    a:focus-visible { outline: 3px solid #166534; outline-offset: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 id="title">Back to NexaPOS</h1>
+    <p id="message">NexaPOS will confirm your payment and show your receipt.</p>
+    <a id="open" href="/app/?payment_return=1">Open NexaPOS</a>
+  </main>
+  <script>
+    // Where the web POS sends the customer after the payment page (the platform tells
+    // Paystack to come here). It lives at the site root on purpose: NexaPOS's offline
+    // worker treats every page under /app/ as the app itself.
+    //
+    // The page asks whether NexaPOS is already open and waiting in another window - an
+    // iPhone Home Screen app shows the payment page over the running app, and a browser
+    // may have opened it in a second tab. If so, it just says so and that app checks the
+    // payment immediately. If nobody answers, this window is the only one left (the app
+    // was closed or reloaded on the way to the payment page), so it opens NexaPOS here.
+    //
+    // No transaction data and no redirect target is read from the address: Paystack
+    // appends ?trxref= and ?reference=, and neither is trusted or needed - the app asks
+    // the server whether the sale was paid.
+    (function () {
+      var CHANNEL = 'nexapos-payment-return'; // shared with lib/core/payment_return_signals_web.dart
+      var APP = '/app/?payment_return=1';
+      var answered = false;
+
+      function say(title, message) {
+        document.getElementById('title').textContent = title;
+        document.getElementById('message').textContent = message;
+      }
+
+      try {
+        var channel = new BroadcastChannel(CHANNEL);
+        channel.onmessage = function (event) {
+          if (event.data !== 'ack' || answered) return;
+          answered = true;
+          say('Payment page finished', 'NexaPOS is checking the payment now. Go back to the NexaPOS screen to see the result.');
+          // Only works for a window a script opened; harmless for any other.
+          setTimeout(function () { try { window.close(); } catch (e) {} }, 600);
+        };
+        channel.postMessage('returned');
+      } catch (e) {
+        // No BroadcastChannel (very old browser): fall through to reopening the app.
+      }
+
+      setTimeout(function () {
+        if (!answered) window.location.replace(APP);
+      }, 1200);
+    })();
+  </script>
+</body>
+</html>
