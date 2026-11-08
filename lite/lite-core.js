@@ -67,6 +67,19 @@
     return (negative ? '-' : '') + text + '.' + (fraction < 10 ? '0' : '') + fraction;
   }
 
+  /**
+   * What a cashier typed as an amount, in cents: "1250", "1,250.50", "12.5" -> 125000, 125050, 1250.
+   * Anything else (letters, negatives, more than two decimals, above 1,000,000) gives null - never a guess.
+   */
+  function parseCents(text) {
+    var cleaned = String(text === undefined || text === null ? '' : text).replace(/[,\s]/g, '');
+    if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
+      return null;
+    }
+    var parts = cleaned.split('.');
+    var cents = parseInt(parts[0], 10) * 100 + (parts[1] ? parseInt((parts[1] + '0').substring(0, 2), 10) : 0);
+    return cents > 100000000 ? null : cents;
+  }
   function parseServerTime(text) {
     var match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(text || '');
     if (!match) {
@@ -677,9 +690,10 @@
       discardRejected: discardRejected,
       sellBlockedReason: sellBlock,
       formatCents: formatCents,
+      parseCents: parseCents,
       _memoryOnly: function () { return memoryOnly; }
     };
   }
 
-  return { create: create, formatCents: formatCents, randomHex: randomHex, STORE_KEY: STORE_KEY };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY };
 }));

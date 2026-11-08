@@ -7,31 +7,49 @@
   <title>NexaPOS Lite</title>
   <style>
     html, body { margin: 0; padding: 0; background: #f4f5fa; color: #14141f; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
-    .page { max-width: 760px; margin: 0 auto; padding: 16px; }
-    h1 { font-size: 24px; margin: 8px 0 4px; }
+    .page { max-width: 860px; margin: 0 auto; padding: 14px; }
+    h1 { font-size: 22px; margin: 6px 0 2px; }
     h2 { font-size: 18px; margin: 0 0 8px; }
     p { line-height: 1.45; margin: 8px 0; }
     .muted { color: #5a5a70; font-size: 14px; }
-    .card { background: #fff; border-radius: 12px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    label { display: block; font-weight: 600; margin: 12px 0 4px; }
-    input, select { width: 100%; box-sizing: border-box; font-size: 18px; padding: 12px; border: 1px solid #b9bcd0; border-radius: 10px; background: #fff; -webkit-appearance: none; }
-    button { font-size: 18px; font-weight: 600; padding: 12px 18px; border: 0; border-radius: 10px; background: #4f46e5; color: #fff; margin: 12px 8px 0 0; -webkit-appearance: none; }
+    .card { background: #fff; border-radius: 12px; padding: 14px; margin: 10px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    label { display: block; font-weight: 600; margin: 10px 0 4px; }
+    input, select { width: 100%; box-sizing: border-box; font-size: 18px; padding: 11px; border: 1px solid #b9bcd0; border-radius: 10px; background: #fff; -webkit-appearance: none; }
+    button { font-size: 18px; font-weight: 600; padding: 12px 18px; border: 0; border-radius: 10px; background: #4f46e5; color: #fff; margin: 10px 8px 0 0; -webkit-appearance: none; }
     button.secondary { background: #e4e5f2; color: #2b2b44; }
-    button[disabled] { opacity: .5; }
-    .notice { border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 15px; }
+    button.small { font-size: 16px; padding: 8px 14px; margin: 0 6px 0 0; }
+    button.big { width: 100%; font-size: 20px; padding: 15px; margin: 12px 0 0; background: #15803d; }
+    button[disabled] { opacity: .45; }
+    .notice { border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 15px; }
     .notice.bad { background: #fde8e8; color: #8a1c1c; }
     .notice.warn { background: #fff4d6; color: #6b4b00; }
     .notice.ok { background: #e3f6e8; color: #1c5a2e; }
     .hidden { display: none; }
     .topbar { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; }
+    .tabs { display: -webkit-flex; display: flex; margin: 10px 0 0; border-bottom: 2px solid #dcdcec; }
+    .tab { -webkit-flex: 1; flex: 1; text-align: center; padding: 12px 4px; font-size: 17px; font-weight: 700; color: #5a5a70; border-bottom: 4px solid transparent; margin-bottom: -2px; }
+    .tab.on { color: #4f46e5; border-bottom-color: #4f46e5; }
     table { width: 100%; border-collapse: collapse; }
     th { text-align: left; font-size: 13px; color: #5a5a70; padding: 6px 4px; border-bottom: 1px solid #dcdcec; }
-    td { padding: 10px 4px; border-bottom: 1px solid #ececf6; vertical-align: top; }
-    td.num, th.num { text-align: right; }
+    td { padding: 8px 4px; border-bottom: 1px solid #ececf6; vertical-align: middle; }
+    td.num, th.num { text-align: right; white-space: nowrap; }
     .sku { color: #5a5a70; font-size: 13px; }
     .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
     .badge.low { background: #fff0c2; color: #6b4b00; }
     .badge.out { background: #fbd5d5; color: #8a1c1c; }
+    .badge.sent { background: #d9f2e0; color: #1c5a2e; }
+    .badge.waiting { background: #fff0c2; color: #6b4b00; }
+    .badge.lost { background: #fbd5d5; color: #8a1c1c; }
+    .seg { display: -webkit-flex; display: flex; margin: 6px 0; }
+    .seg button { -webkit-flex: 1; flex: 1; margin: 0 6px 0 0; background: #e4e5f2; color: #2b2b44; }
+    .seg button.on { background: #4f46e5; color: #fff; }
+    .row2 { display: -webkit-flex; display: flex; }
+    .row2 > div { -webkit-flex: 1; flex: 1; margin-right: 8px; }
+    .totals td { border: 0; padding: 4px; font-size: 17px; }
+    .totals tr.grand td { font-size: 22px; font-weight: 800; border-top: 2px solid #14141f; }
+    .qty { display: inline-block; min-width: 28px; text-align: center; font-weight: 700; font-size: 18px; }
+    .receipt { background: #fff; border: 2px dashed #b9bcd0; border-radius: 12px; padding: 16px; }
+    .receipt .big { font-size: 28px; font-weight: 800; }
   </style>
 </head>
 <body>
@@ -58,6 +76,7 @@
       <div class="topbar"><h1 id="login-shop">NexaPOS Lite</h1></div>
       <div id="login-license"></div>
       <div id="login-revoked"></div>
+      <div id="login-sales"></div>
       <div class="card">
         <h2>Log in</h2>
         <label for="username">Username</label>
@@ -72,35 +91,110 @@
       <button id="forget-button" class="secondary" type="button">Disconnect this iPad</button>
     </section>
 
-    <section id="screen-catalog" class="hidden">
+    <section id="screen-till" class="hidden">
       <div class="topbar">
-        <div><h1 id="catalog-shop">NexaPOS Lite</h1><div class="muted" id="catalog-user"></div></div>
-        <button id="logout-button" class="secondary" type="button" style="margin-top:0">Log out</button>
+        <div><h1 id="till-shop">NexaPOS Lite</h1><div class="muted" id="till-user"></div></div>
+        <button id="logout-button" class="secondary small" type="button">Log out</button>
       </div>
-      <div id="catalog-license"></div>
-      <div class="notice warn">Selling on this iPad arrives in the next update. For now you can look up products, prices and stock.</div>
-      <div class="card">
-        <label for="search" style="margin-top:0">Search</label>
-        <input id="search" type="text" placeholder="Name, code or barcode" autocapitalize="none" autocorrect="off" autocomplete="off">
-        <label for="category">Category</label>
-        <select id="category"></select>
+      <div id="till-license"></div>
+      <div id="till-sales"></div>
+      <div class="tabs">
+        <div class="tab on" id="tab-sell">Sell</div>
+        <div class="tab" id="tab-products">Products</div>
+        <div class="tab" id="tab-sales">Sales</div>
       </div>
-      <div class="card">
-        <table>
-          <thead><tr><th>Product</th><th class="num">Price</th><th class="num">In stock</th></tr></thead>
-          <tbody id="product-rows"></tbody>
-        </table>
-        <p class="muted" id="product-count"></p>
+
+      <!-- SELL -->
+      <div id="panel-sell">
+        <div id="receipt-box" class="hidden"></div>
+        <div id="sell-form">
+          <div class="card">
+            <input id="sell-search" type="text" placeholder="Find a product: name, code or barcode" autocapitalize="none" autocorrect="off" autocomplete="off">
+            <table style="margin-top:8px"><tbody id="sell-picker"></tbody></table>
+            <p class="muted" id="sell-picker-note"></p>
+          </div>
+          <div class="card">
+            <h2>This sale</h2>
+            <div id="cart-empty" class="muted">Nothing added yet. Tap a product above.</div>
+            <table><tbody id="cart-lines"></tbody></table>
+            <div class="seg" id="type-seg">
+              <button type="button" id="type-retail" class="on">Retail</button>
+              <button type="button" id="type-wholesale">Wholesale</button>
+            </div>
+            <div class="row2">
+              <div><label for="discount">Discount (amount)</label><input id="discount" type="text" inputmode="decimal" placeholder="0" autocomplete="off"></div>
+              <div><label for="customer">Customer (optional)</label><input id="customer" type="text" autocomplete="off"></div>
+            </div>
+            <details style="margin-top:10px"><summary class="muted">Add an item that is not in the list</summary>
+              <div class="row2">
+                <div><label for="manual-name">Item</label><input id="manual-name" type="text" autocomplete="off"></div>
+                <div><label for="manual-price">Price</label><input id="manual-price" type="text" inputmode="decimal" autocomplete="off"></div>
+                <div><label for="manual-qty">Qty</label><input id="manual-qty" type="text" inputmode="numeric" value="1" autocomplete="off"></div>
+              </div>
+              <button id="manual-add" class="secondary small" type="button" style="margin-top:8px">Add item</button>
+            </details>
+          </div>
+          <div class="card">
+            <h2>Payment</h2>
+            <div class="seg" id="pay-seg">
+              <button type="button" id="pay-cash" class="on">Cash</button>
+              <button type="button" id="pay-mpesa">M-Pesa (already received)</button>
+            </div>
+            <div id="pay-cash-box">
+              <label for="cash-received">Cash received</label>
+              <input id="cash-received" type="text" inputmode="decimal" placeholder="Optional" autocomplete="off">
+            </div>
+            <div id="pay-mpesa-box" class="hidden">
+              <div class="row2">
+                <div><label for="mpesa-phone">Customer phone (optional)</label><input id="mpesa-phone" type="text" inputmode="tel" autocomplete="off"></div>
+                <div><label for="mpesa-ref">M-Pesa code (optional)</label><input id="mpesa-ref" type="text" autocapitalize="characters" autocorrect="off" autocomplete="off"></div>
+              </div>
+              <p class="muted">Only choose this after the money has arrived on the till's M-Pesa. NexaPOS Lite does not send M-Pesa requests.</p>
+            </div>
+            <table class="totals" style="margin-top:12px"><tbody id="totals"></tbody></table>
+            <div id="sell-message"></div>
+            <button id="complete-button" class="big" type="button">Complete sale</button>
+            <button id="clear-button" class="secondary" type="button">Clear this sale</button>
+          </div>
+        </div>
       </div>
-      <p class="muted" id="catalog-updated"></p>
-      <div id="catalog-message"></div>
-      <button id="catalog-refresh" class="secondary" type="button">Update shop data</button>
+
+      <!-- PRODUCTS -->
+      <div id="panel-products" class="hidden">
+        <div class="card">
+          <label for="search" style="margin-top:0">Search</label>
+          <input id="search" type="text" placeholder="Name, code or barcode" autocapitalize="none" autocorrect="off" autocomplete="off">
+          <label for="category">Category</label>
+          <select id="category"></select>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Product</th><th class="num">Price</th><th class="num">In stock</th></tr></thead>
+            <tbody id="product-rows"></tbody>
+          </table>
+          <p class="muted" id="product-count"></p>
+        </div>
+      </div>
+
+      <!-- SALES -->
+      <div id="panel-sales" class="hidden">
+        <div class="card">
+          <h2>Sales made on this iPad</h2>
+          <table><tbody id="sales-rows"></tbody></table>
+          <p class="muted" id="sales-note"></p>
+        </div>
+      </div>
+
+      <p class="muted" id="till-updated"></p>
+      <div id="till-message"></div>
+      <button id="till-refresh" class="secondary" type="button">Send sales and update shop data</button>
     </section>
 
-    <p class="muted" style="margin-top:28px">NexaPOS Lite &middot; look-up version</p>
+    <p class="muted" style="margin-top:26px">NexaPOS Lite</p>
   </div>
-  <script src="bcrypt.min.js?v=1"></script>
-  <script src="lite-core.js?v=1"></script>
-  <script src="lite.js?v=1"></script>
+  <script src="bcrypt.min.js?v=2"></script>
+  <script src="lite-sale.js?v=2"></script>
+  <script src="lite-core.js?v=2"></script>
+  <script src="lite.js?v=2"></script>
 </body>
 </html>
