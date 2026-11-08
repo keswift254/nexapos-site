@@ -19,8 +19,10 @@
   'use strict';
 
   var SALE_TYPES = ['retail', 'wholesale'];
-  // Online (Paystack) payments are a later stage; these two need no payment gateway.
-  var PAYMENT_METHODS = ['cash', 'mpesa_manual'];
+  // 'paystack' is an online payment: the sale is recorded as PENDING (stock reserved) until the payment is confirmed,
+  // then settled by settle() below - exactly as the app's beginPaystackSale / finalizePaystackSale / cancelPaystackSale.
+  var PAYMENT_METHODS = ['cash', 'mpesa_manual', 'paystack'];
+  var SALE_NUMBER_PATTERN = /^[0-9A-Z]{6}-\d{14}-[0-9A-Z]{4}$/;
   var MAX_QUANTITY = 100000;
   var SALE_NUMBER_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
@@ -82,7 +84,8 @@
    * input: {
    *   cart: [{productId|null, name, unitPriceCents, quantity}],  products: {id: {id,name,status,stockQty,costPriceCents}},
    *   saleType, paymentMethod, discountCents, customerName, customerPhone, referenceNote, cashReceivedCents,
-   *   userId, deviceId, now(ms), nextRev, randomHex(bytes)
+   *   userId, deviceId, now(ms), nextRev, randomHex(bytes), saleNumber (optional: an online sale needs its number before
+   *   it is built, because the number is the payment reference)
    * }
    * -> { ok: true, changes: [...], nextRev, receipt } | { ok: false, message }
    */
@@ -169,6 +172,10 @@
     var total = subtotal - discount;
 
     var isCash = input.paymentMethod === 'cash';
+    var online = input.paymentMethod === 'paystack';
+    if (input.saleNumber !== undefined && input.saleNumber !== null && !SALE_NUMBER_PATTERN.test(input.saleNumber)) {
+      return fail('That sale number is not valid.');
+    }
     if (!isCash && total < 1) {
       return fail('The total is zero, so there is nothing to charge.');
     }
@@ -198,7 +205,7 @@
       return payload;
     }
 
-    var saleNumber = newSaleNumber(input.deviceId, nowMs, input.randomHex);
+    var saleNumber = input.saleNumber || newSaleNumber(input.deviceId, nowMs, input.randomHex);
     var customerName = clean(input.customerName, 120) || 'Walk-in customer';
     var phone = trim(input.customerPhone);
     var cashReceived = isCash && isInt(input.cashReceivedCents) && input.cashReceivedCents > 0 ? input.cashReceivedCents : null;
@@ -213,7 +220,7 @@
       subtotalCents: subtotal,
       discountCents: discount,
       totalCents: total,
-      status: 'paid',
+      status: online ? 'pending' : 'paid',
       cashReceivedCents: cashReceived
     });
 
@@ -244,8 +251,9 @@
         saleId: sale.id,
         method: input.paymentMethod,
         amountCents: total,
-        referenceNote: clean(input.referenceNote, 200) || null,
-        status: 'paid'
+        // An online payment is reserved ('initiated') under the sale number, which is also Paystack's reference.
+        referenceNote: online ? saleNumber : (clean(input.referenceNote, 200) || null),
+        status: online ? 'initiated' : 'paid'
       });
     }
 
@@ -262,13 +270,81 @@
       totalCents: total,
       cashReceivedCents: cashReceived,
       changeDueCents: cashReceived === null ? null : cashReceived - total,
-      referenceNote: isCash ? null : (clean(input.referenceNote, 200) || null)
+      referenceNote: isCash ? null : (online ? saleNumber : (clean(input.referenceNote, 200) || null)),
+      online: online,
+      amountToPayCents: online ? total : null
     };
     return { ok: true, changes: changes, nextRev: rev, receipt: receipt };
   }
 
+  /** A time strictly later than the row's last one, so the newer version wins everywhere (the app compares them as text). */
+  function laterStamp(previous, nowMs) {
+    var previousMs = Date.parse(String(previous).replace(/(\.\d{3})\d*Z$/, '$1Z'));
+    return isoStamp(isFinite(previousMs) && previousMs >= nowMs ? previousMs + 1 : nowMs);
+  }
+
+  /**
+   * Settles a pending online sale once its payment is known. The records are the SAME sale and payment rows, updated
+   * (same ids, a newer time, the next revisions), exactly as the app does it:
+   *   'paid'      -> the sale becomes paid and its payment paid;
+   *   'cancelled' -> the stock the sale took is returned, the sale becomes cancelled and its payment failed.
+   * input: {original: the pending sale's records, outcome: 'paid'|'cancelled', deviceId, now(), nextRev, randomHex}
+   * -> {ok, changes, nextRev} | {ok:false, message}
+   */
+  function settle(input) {
+    var sale = null;
+    var payment = null;
+    var movements = [];
+    for (var i = 0; i < input.original.length; i++) {
+      var change = input.original[i];
+      if (change.table_name === 'sales') { sale = change.payload; }
+      if (change.table_name === 'payment_records') { payment = change.payload; }
+      if (change.table_name === 'stock_movements') { movements.push(change.payload); }
+    }
+    if (!sale || !payment || sale.paymentMethod !== 'paystack' || sale.status !== 'pending' || payment.status !== 'initiated') {
+      return fail('That is not an online sale waiting for its payment.');
+    }
+    if (input.outcome !== 'paid' && input.outcome !== 'cancelled') {
+      return fail('Say whether the payment was received or the sale cancelled.');
+    }
+    var rev = input.nextRev;
+    var nowMs = input.now();
+    var changes = [];
+    function update(table, previous, fields) {
+      var payload = {};
+      for (var key in previous) {
+        if (Object.prototype.hasOwnProperty.call(previous, key)) { payload[key] = previous[key]; }
+      }
+      payload.updatedAt = laterStamp(previous.updatedAt, nowMs);
+      payload.localRev = rev;
+      for (var field in fields) {
+        if (Object.prototype.hasOwnProperty.call(fields, field)) { payload[field] = fields[field]; }
+      }
+      rev += 1;
+      changes.push({ table_name: table, row_id: payload.id, local_rev: payload.localRev, updated_at: payload.updatedAt, payload: payload });
+    }
+    if (input.outcome === 'cancelled') {
+      // Put back what the sale took, one return per product (the sale's movements are already one per product).
+      var stamp = isoStamp(nowMs);
+      for (var m = 0; m < movements.length; m++) {
+        var returned = {
+          id: uuid(input.randomHex), createdAt: stamp, updatedAt: stamp, deletedAt: null, localRev: rev,
+          createdByDeviceId: input.deviceId, syncState: 'local_only',
+          productId: movements[m].productId, userId: null, movementType: 'return', quantity: -movements[m].quantity,
+          note: 'Online payment not completed'
+        };
+        rev += 1;
+        changes.push({ table_name: 'stock_movements', row_id: returned.id, local_rev: returned.localRev, updated_at: returned.updatedAt, payload: returned });
+      }
+    }
+    update('sales', sale, { status: input.outcome === 'paid' ? 'paid' : 'cancelled' });
+    update('payment_records', payment, { status: input.outcome === 'paid' ? 'paid' : 'failed' });
+    return { ok: true, changes: changes, nextRev: rev };
+  }
+
   return {
     build: build,
+    settle: settle,
     priceFor: priceFor,
     newSaleNumber: newSaleNumber,
     isoStamp: isoStamp,
