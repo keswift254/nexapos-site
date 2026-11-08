@@ -64,6 +64,32 @@ ring('wholesale', { cart: [{ productId: soda.id, name: 'Soda 500ml', unitPriceCe
 ring('manual_line', { cart: [{ productId: soda.id, name: 'Soda 500ml', unitPriceCents: 6000, quantity: 1 }, { productId: null, name: 'Delivery', unitPriceCents: 20000, quantity: 1 }], saleType: 'retail', paymentMethod: 'cash', cashReceivedCents: 30000 },
   { subtotalCents: 26000, discountCents: 0, totalCents: 26000, status: 'paid', paymentMethod: 'cash', itemCount: 2, payment: null, stockSold: [[soda.id, 1]] });
 
+// Online (Paystack) sales: pending first, then settled by follow-up rows (same sale and payment ids, newer), exactly as
+// the till pushes them. The two batches are applied in that order, so the app must end on the settled state.
+function ringOnline(name, request, outcome, saleNumber, expected) {
+  var pending = Sale.build({
+    cart: request.cart, products: catalog, saleType: 'retail', paymentMethod: 'paystack', discountCents: request.discountCents || 0,
+    customerName: '', customerPhone: request.customerPhone || '', userId: cashier.id, deviceId: DEVICE, saleNumber: saleNumber,
+    now: function () { return Date.parse('2026-11-08T10:00:00Z'); }, nextRev: rev, randomHex: function (n) { return crypto.randomBytes(n).toString('hex'); }
+  });
+  if (!pending.ok) { throw new Error(name + ': ' + pending.message); }
+  rev = pending.nextRev;
+  var changes = pending.changes.slice(0);
+  if (outcome) {
+    var settled = Sale.settle({ original: pending.changes, outcome: outcome, deviceId: DEVICE, now: function () { return Date.parse('2026-11-08T10:05:00Z'); }, nextRev: rev, randomHex: function (n) { return crypto.randomBytes(n).toString('hex'); } });
+    if (!settled.ok) { throw new Error(name + ': ' + settled.message); }
+    rev = settled.nextRev;
+    changes = changes.concat(settled.changes);
+  }
+  scenarios.push({ name: name, changes: changes, expect: expected });
+}
+ringOnline('paystack_waiting', { cart: [{ productId: soda.id, name: 'Soda 500ml', unitPriceCents: 6000, quantity: 2 }, { productId: bread.id, name: 'Bread', unitPriceCents: 7500, quantity: 1 }], customerPhone: '0712345678' }, null, 'ABCDEF-20261108100000-WXYZ',
+  { subtotalCents: 19500, discountCents: 0, totalCents: 19500, status: 'pending', paymentMethod: 'paystack', itemCount: 2, payment: { method: 'paystack', amountCents: 19500, status: 'initiated', referenceNote: 'ABCDEF-20261108100000-WXYZ' }, stockSold: [[soda.id, 2], [bread.id, 1]] });
+ringOnline('paystack_paid', { cart: [{ productId: soda.id, name: 'Soda 500ml', unitPriceCents: 6000, quantity: 3 }], discountCents: 1500 }, 'paid', 'GHIJKL-20261108100100-ABCD',
+  { subtotalCents: 18000, discountCents: 1500, totalCents: 16500, status: 'paid', paymentMethod: 'paystack', itemCount: 1, payment: { method: 'paystack', amountCents: 16500, status: 'paid', referenceNote: 'GHIJKL-20261108100100-ABCD' }, stockSold: [[soda.id, 3]] });
+ringOnline('paystack_cancelled', { cart: [{ productId: bread.id, name: 'Bread', unitPriceCents: 7500, quantity: 4 }, { productId: soda.id, name: 'Soda 500ml', unitPriceCents: 6000, quantity: 1 }] }, 'cancelled', 'MNOPQR-20261108100200-EFGH',
+  { subtotalCents: 36000, discountCents: 0, totalCents: 36000, status: 'cancelled', paymentMethod: 'paystack', itemCount: 2, payment: { method: 'paystack', amountCents: 36000, status: 'failed', referenceNote: 'MNOPQR-20261108100200-EFGH' }, stockSold: [] });
+
 var out = path.join(__dirname, 'fixtures', 'lite_built_sales.json');
 fs.writeFileSync(out, JSON.stringify({ made_by: 'tests/lite/export-built-sales.js (the Lite page\'s sale builder)', context: context, scenarios: scenarios }, null, 2) + '\n');
 console.log('Wrote ' + out + ' (' + scenarios.length + ' sales).');
