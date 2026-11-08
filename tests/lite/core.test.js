@@ -393,6 +393,12 @@ test('money formatting', function (done) {
   done();
 });
 
+test('amounts typed by a cashier are read exactly, or refused', function (done) {
+  var cases = [['1250', 125000], ['1,250.50', 125050], [' 12.5 ', 1250], ['0.05', 5], ['0', 0], ['1000000', 100000000],
+    ['', null], ['abc', null], ['-5', null], ['12.345', null], ['1000000.01', null], ['1.2.3', null], ['KES 100', null], [null, null]];
+  cases.forEach(function (c) { assert.strictEqual(Core.parseCents(c[0]), c[1], JSON.stringify(c[0])); });
+  done();
+});
 // ---- run ------------------------------------------------------------------------------------------------------
 var failed = 0;
 (function run(index) {

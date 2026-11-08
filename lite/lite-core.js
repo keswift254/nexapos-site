@@ -10,7 +10,9 @@
  * What this stage does: join a shop with an invite code, keep a copy of the shop's catalog (products,
  * categories, cashiers) up to date from the platform's lite_catalog endpoint, and let a cashier log in by
  * checking their password against the bcrypt hash the app stored - exactly what the app does.
- * It never writes anything to the shop.
+ * Selling: a sale is built by lite-sale.js (a port of the app's checkout), saved on the iPad FIRST (the outbox), and
+ * sent to the shop when the network allows. It is never lost: no internet means it waits and retries; if the server
+ * refuses it, it stays on the iPad marked "not recorded" for the owner, never silently dropped.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -65,6 +67,19 @@
     return (negative ? '-' : '') + text + '.' + (fraction < 10 ? '0' : '') + fraction;
   }
 
+  /**
+   * What a cashier typed as an amount, in cents: "1250", "1,250.50", "12.5" -> 125000, 125050, 1250.
+   * Anything else (letters, negatives, more than two decimals, above 1,000,000) gives null - never a guess.
+   */
+  function parseCents(text) {
+    var cleaned = String(text === undefined || text === null ? '' : text).replace(/[,\s]/g, '');
+    if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
+      return null;
+    }
+    var parts = cleaned.split('.');
+    var cents = parseInt(parts[0], 10) * 100 + (parts[1] ? parseInt((parts[1] + '0').substring(0, 2), 10) : 0);
+    return cents > 100000000 ? null : cents;
+  }
   function parseServerTime(text) {
     var match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(text || '');
     if (!match) {
@@ -89,7 +104,7 @@
 
     // ---- storage ----------------------------------------------------------------------------------------
     function blank() {
-      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false };
+      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [] };
     }
 
     function load() {
@@ -98,6 +113,9 @@
         if (text) {
           var parsed = JSON.parse(text);
           if (parsed && parsed.version === 1) {
+            parsed.nextRev = parsed.nextRev || 1;
+            parsed.outbox = parsed.outbox || [];
+            parsed.history = parsed.history || [];
             return parsed;
           }
         }
@@ -244,6 +262,7 @@
           license: body.license || null,
           cursor: body.cursor || 0
         };
+        applyPendingToCatalog();
         state.fetchedAt = now();
         state.revoked = false;
         save();
@@ -383,6 +402,242 @@
       return { state: 'ok', ok: true, daysLeft: days, message: days === null ? 'Licence active.' : 'Licence active, ' + days + ' day' + (days === 1 ? '' : 's') + ' left.' };
     }
 
+    // ---- selling -----------------------------------------------------------------------------------------
+    function productMap() {
+      var map = {};
+      var list = state.catalog ? state.catalog.products : [];
+      for (var i = 0; i < list.length; i++) {
+        map[list[i].id] = list[i];
+      }
+      return map;
+    }
+
+    /** Why selling is not possible right now, or null. */
+    function sellBlock() {
+      if (!session) {
+        return 'Log in first.';
+      }
+      if (!state.joined || !state.catalog) {
+        return 'This iPad has not loaded the shop yet.';
+      }
+      if (state.revoked) {
+        return 'This iPad is no longer allowed to use the shop.';
+      }
+      var license = licenseStatus();
+      if (!license.ok) {
+        return license.message;
+      }
+      return null;
+    }
+
+    /** The unsent sales are real sales the shop's server has not seen: they still take stock out. */
+    function applyPendingToCatalog() {
+      var map = productMap();
+      for (var i = 0; i < state.outbox.length; i++) {
+        if (state.outbox[i].status !== 'pending') {
+          continue;
+        }
+        var changes = state.outbox[i].changes;
+        for (var j = 0; j < changes.length; j++) {
+          if (changes[j].table_name === 'stock_movements' && map[changes[j].payload.productId]) {
+            map[changes[j].payload.productId].stockQty += changes[j].payload.quantity;
+          }
+        }
+      }
+    }
+
+    function historyEntry(saleId) {
+      for (var i = 0; i < state.history.length; i++) {
+        if (state.history[i].receipt.saleId === saleId) {
+          return state.history[i];
+        }
+      }
+      return null;
+    }
+
+    /**
+     * request: {cart, saleType, paymentMethod, discountCents, customerName, customerPhone, referenceNote, cashReceivedCents}
+     * -> {ok:true, receipt} | {ok:false, message}. Saved on the iPad before anything is sent.
+     */
+    function sell(request) {
+      var blocked = sellBlock();
+      if (blocked) {
+        return { ok: false, message: blocked };
+      }
+      var built = options.sale.build({
+        cart: request.cart,
+        products: productMap(),
+        saleType: request.saleType,
+        paymentMethod: request.paymentMethod,
+        discountCents: request.discountCents,
+        customerName: request.customerName,
+        customerPhone: request.customerPhone,
+        referenceNote: request.referenceNote,
+        cashReceivedCents: request.cashReceivedCents,
+        userId: session.id,
+        deviceId: state.device.id,
+        now: now,
+        nextRev: state.nextRev,
+        randomHex: random
+      });
+      if (!built.ok) {
+        return built;
+      }
+      state.nextRev = built.nextRev;
+      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null });
+      state.history.unshift({ receipt: built.receipt, status: 'queued', error: null });
+      if (state.history.length > 100) {
+        state.history.length = 100;
+      }
+      var map = productMap();
+      for (var i = 0; i < built.changes.length; i++) {
+        var change = built.changes[i];
+        if (change.table_name === 'stock_movements' && map[change.payload.productId]) {
+          map[change.payload.productId].stockQty += change.payload.quantity;
+        }
+      }
+      save();
+      return { ok: true, receipt: built.receipt };
+    }
+
+    var flushing = false;
+    var flushWaiting = [];
+
+    function firstPending() {
+      for (var i = 0; i < state.outbox.length; i++) {
+        if (state.outbox[i].status === 'pending') {
+          return state.outbox[i];
+        }
+      }
+      return null;
+    }
+
+    function outboxSummary() {
+      var pending = 0;
+      var rejected = [];
+      for (var i = 0; i < state.outbox.length; i++) {
+        var entry = state.outbox[i];
+        if (entry.status === 'pending') {
+          pending += 1;
+        } else if (entry.status === 'rejected') {
+          rejected.push({ id: entry.id, saleNumber: entry.receipt.saleNumber, totalCents: entry.receipt.totalCents, message: entry.error, createdAt: entry.createdAt });
+        }
+      }
+      return { pending: pending, rejected: rejected };
+    }
+
+    /**
+     * Sends every waiting sale, oldest first. A sale the shop already holds is harmless to send again (the
+     * server recognises it), so a lost reply cannot double-record anything. No internet or a server hiccup:
+     * the sale stays and is tried again later. The server refusing it (422): it stays on the iPad as "not
+     * recorded" - never deleted - and the next sale is still sent.
+     */
+    function flush(cb) {
+      cb = cb || function () {};
+      if (flushing) {
+        flushWaiting.push(cb);
+        return;
+      }
+      flushing = true;
+      var sent = 0;
+      var refused = 0;
+      var stoppedBy = null;
+      next();
+
+      function finish() {
+        flushing = false;
+        var result = outboxSummary();
+        result.sent = sent;
+        result.refused = refused;
+        var waiting = flushWaiting;
+        flushWaiting = [];
+        cb(stoppedBy && !sent ? stoppedBy : null, result);
+        for (var w = 0; w < waiting.length; w++) {
+          waiting[w](null, result);
+        }
+      }
+
+      function next() {
+        var entry = firstPending();
+        if (!entry) {
+          finish();
+          return;
+        }
+        entry.attempts += 1;
+        call('POST', 'push_changes', { changes: entry.changes }, function (error, body, status) {
+          if (!error) {
+            sent += 1;
+            var index = state.outbox.indexOf(entry);
+            if (index >= 0) {
+              state.outbox.splice(index, 1);
+            }
+            var done = historyEntry(entry.id);
+            if (done) {
+              done.status = 'sent';
+            }
+            save();
+            next();
+            return;
+          }
+          if (error.code === 'unauthorized' || error.code === 'forbidden') {
+            state.revoked = true;
+            stoppedBy = error;
+            save();
+            finish();
+            return;
+          }
+          if (error.code === 'offline' || status >= 500 || status === 429 || status === 408) {
+            stoppedBy = error;
+            save();
+            finish();
+            return;
+          }
+          entry.status = 'rejected';
+          entry.error = error.message;
+          refused += 1;
+          var shown = historyEntry(entry.id);
+          if (shown) {
+            shown.status = 'rejected';
+            shown.error = error.message;
+          }
+          save();
+          next();
+        });
+      }
+    }
+
+    /** Send what is waiting, then bring the catalog (and so the stock) up to date. */
+    function sync(cb) {
+      flush(function (flushError, flushed) {
+        if (flushError && flushError.code === 'offline') {
+          cb(flushError, flushed);
+          return;
+        }
+        refresh(function (refreshError, status) {
+          cb(refreshError || null, flushed, status);
+        });
+      });
+    }
+
+    /** Only the owner may let go of a sale the server refused: it is a real sale that is not in the books. */
+    function discardRejected(saleId) {
+      if (!session || session.roleName !== 'Admin') {
+        return { ok: false, message: 'Only an owner (Admin) can remove a sale that was not recorded.' };
+      }
+      for (var i = 0; i < state.outbox.length; i++) {
+        if (state.outbox[i].id === saleId && state.outbox[i].status === 'rejected') {
+          state.outbox.splice(i, 1);
+          var shown = historyEntry(saleId);
+          if (shown) {
+            shown.status = 'discarded';
+          }
+          save();
+          return { ok: true };
+        }
+      }
+      return { ok: false, message: 'That sale is not waiting.' };
+    }
+
     function getStatus() {
       var catalog = state.catalog;
       return {
@@ -396,7 +651,10 @@
         productCount: catalog ? catalog.products.length : 0,
         license: licenseStatus(),
         storageOk: storageOk,
-        deviceLabel: state.device ? state.device.label : ''
+        deviceLabel: state.device ? state.device.label : '',
+        pendingSales: outboxSummary().pending,
+        rejectedSales: outboxSummary().rejected.length,
+        sellBlockedReason: sellBlock()
       };
     }
 
@@ -424,10 +682,18 @@
       categories: function () { return state.catalog ? state.catalog.categories : []; },
       getStatus: getStatus,
       forget: forget,
+      sell: sell,
+      flush: flush,
+      sync: sync,
+      outbox: outboxSummary,
+      history: function () { return state.history; },
+      discardRejected: discardRejected,
+      sellBlockedReason: sellBlock,
       formatCents: formatCents,
+      parseCents: parseCents,
       _memoryOnly: function () { return memoryOnly; }
     };
   }
 
-  return { create: create, formatCents: formatCents, randomHex: randomHex, STORE_KEY: STORE_KEY };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY };
 }));
