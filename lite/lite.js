@@ -80,7 +80,13 @@
   var core = window.NexaLiteCore.create({ baseUrl: API, http: xhrHttp, storage: storage, bcrypt: bcryptLib, sale: Sale });
 
   // What the cashier is doing right now (kept in memory only).
-  var ui = { tab: 'sell', cart: [], saleType: 'retail', payment: 'cash', receiptId: null, lastSyncProblem: '', syncing: false };
+  var ui = { tab: 'sell', cart: [], saleType: 'retail', payment: 'cash', receiptId: null, lastSyncProblem: '', syncing: false, payingId: null, payTimer: null, starting: false };
+  var PAY_POLL_MS = 3000;
+  var BACKGROUND_PAY_CHECK_MS = 15 * 1000;
+
+  function methodLabel(method) {
+    return method === 'cash' ? 'Cash' : (method === 'paystack' ? 'Online (Paystack)' : 'M-Pesa');
+  }
 
   // ---- small helpers -----------------------------------------------------------------------------------------
   function say(containerId, kind, text) {
@@ -129,8 +135,11 @@
     if (status.rejectedSales > 0) {
       box.appendChild(make('div', 'notice bad', status.rejectedSales + (status.rejectedSales === 1 ? ' sale was' : ' sales were') + ' NOT recorded by the shop. The money was taken but the shop has no record of it. Tell the owner now. Details are on the Sales tab.'));
     }
+    if (status.onlineWaiting > 0 && containerId === 'login-sales') {
+      box.appendChild(make('div', 'notice warn', status.onlineWaiting + (status.onlineWaiting === 1 ? ' online payment is' : ' online payments are') + ' waiting for the customer to pay. Log in to see ' + (status.onlineWaiting === 1 ? 'it' : 'them') + '.'));
+    }
     if (status.pendingSales > 0) {
-      var warn = make('div', 'notice warn', status.pendingSales + (status.pendingSales === 1 ? ' sale is' : ' sales are') + ' saved on this iPad and waiting to be sent to the shop. ' + (ui.lastSyncProblem ? ui.lastSyncProblem + ' ' : ''));
+      var warn =make('div', 'notice warn', status.pendingSales + (status.pendingSales === 1 ? ' sale is' : ' sales are') + ' saved on this iPad and waiting to be sent to the shop. ' + (ui.lastSyncProblem ? ui.lastSyncProblem + ' ' : ''));
       var send = make('button', 'small secondary', 'Send now');
       send.type = 'button';
       send.onclick = function () { doSync(true); };
@@ -172,6 +181,8 @@
 
   function renderAll() {
     renderBanner('till-sales');
+    renderNotices();
+    renderOnline();
     renderPicker();
     renderCart();
     fillCategories();
@@ -367,12 +378,17 @@
   }
   el('pay-cash').onclick = function () { setPayment('cash'); };
   el('pay-mpesa').onclick = function () { setPayment('mpesa_manual'); };
+  el('pay-paystack').onclick = function () { setPayment('paystack'); };
+  function completeLabel() { return ui.payment === 'paystack' ? 'Take payment online' : 'Complete sale'; }
   function setPayment(method) {
     ui.payment = method;
     el('pay-cash').className = method === 'cash' ? 'on' : '';
     el('pay-mpesa').className = method === 'mpesa_manual' ? 'on' : '';
+    el('pay-paystack').className = method === 'paystack' ? 'on' : '';
     show('pay-cash-box', method === 'cash');
     show('pay-mpesa-box', method === 'mpesa_manual');
+    show('pay-paystack-box', method === 'paystack');
+    setText('complete-button', completeLabel());
     renderCart();
   }
 
@@ -383,6 +399,7 @@
     el('cash-received').value = '';
     el('mpesa-phone').value = '';
     el('mpesa-ref').value = '';
+    el('paystack-phone').value = '';
     say('sell-message', '', '');
     setSaleType('retail');
     setPayment('cash');
@@ -391,10 +408,15 @@
 
   // ---- completing a sale -------------------------------------------------------------------------------------
   el('complete-button').onclick = function () {
+    if (ui.starting) { return; }
     var t = totals();
     var cart = [];
     for (var i = 0; i < t.lines.length; i++) {
       cart.push({ productId: t.lines[i].item.productId, name: t.lines[i].item.name, unitPriceCents: t.lines[i].unit, quantity: t.lines[i].item.qty });
+    }
+    if (ui.payment === 'paystack') {
+      startOnlineSale(t, cart);
+      return;
     }
     var cashTyped = el('cash-received').value.replace(/^\s+|\s+$/g, '');
     var result = core.sell({
@@ -442,7 +464,7 @@
     var card = make('div', 'receipt');
     card.appendChild(make('div', 'muted', 'Sale ' + receipt.saleNumber + ' · ' + timeText(receipt.createdAt)));
     card.appendChild(make('div', 'big', 'Total ' + core.formatCents(receipt.totalCents)));
-    card.appendChild(make('div', '', (receipt.paymentMethod === 'cash' ? 'Paid in cash' : 'Paid by M-Pesa' + (receipt.referenceNote ? ' (' + receipt.referenceNote + ')' : '')) + (receipt.customerName !== 'Walk-in customer' ? ' · ' + receipt.customerName : '')));
+    card.appendChild(make('div', '', (receipt.paymentMethod === 'cash' ? 'Paid in cash' : (receipt.paymentMethod === 'paystack' ? 'Paid online (Paystack)' : 'Paid by M-Pesa' + (receipt.referenceNote ? ' (' + receipt.referenceNote + ')' : ''))) + (receipt.customerName !== 'Walk-in customer' ? ' · ' + receipt.customerName : '')));
     if (receipt.changeDueCents !== null && receipt.changeDueCents >= 0) {
       card.appendChild(make('div', 'big', 'Change to give: ' + core.formatCents(receipt.changeDueCents)));
     } else if (receipt.changeDueCents !== null) {
@@ -484,6 +506,241 @@
     say('receipt-status', line.kind, line.text);
   }
 
+  // ---- online (Paystack) payments ----------------------------------------------------------------------------
+  function findWaiting(saleId) {
+    var list = core.online();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].saleId === saleId) { return list[i]; }
+    }
+    return null;
+  }
+
+  function historyFor(saleId) {
+    var list = core.history();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].receipt.saleId === saleId) { return list[i]; }
+    }
+    return null;
+  }
+
+  function sendWaitingSales() {
+    core.flush(function (error) {
+      ui.lastSyncProblem = error ? error.message : '';
+      if (core.currentUser()) {
+        renderBanner('till-sales');
+        updateReceiptStatus();
+        renderSales();
+      } else {
+        route();
+      }
+    });
+  }
+
+  function startOnlineSale(t, cart) {
+    ui.starting = true;
+    setBusy('complete-button', true, 'Contacting Paystack...');
+    say('sell-message', '', '');
+    core.startOnline({
+      cart: cart,
+      saleType: ui.saleType,
+      discountCents: t.discount,
+      customerName: el('customer').value,
+      customerPhone: el('paystack-phone').value
+    }, function (error, started) {
+      ui.starting = false;
+      setBusy('complete-button', false, completeLabel());
+      if (error) {
+        renderCart();
+        say('sell-message', 'bad', error.message);
+        return;
+      }
+      resetSale();
+      renderAll();
+      openPayScreen(started.receipt.saleId);
+      sendWaitingSales();
+    });
+  }
+
+  function stopPayPoll() {
+    if (ui.payTimer) { window.clearTimeout(ui.payTimer); }
+    ui.payTimer = null;
+  }
+
+  function schedulePayPoll(delay) {
+    stopPayPoll();
+    ui.payTimer = window.setTimeout(function () { payPoll(false); }, delay);
+  }
+
+  function closePayScreen() {
+    stopPayPoll();
+    ui.payingId = null;
+    show('pay-screen', false);
+    show('receipt-box', false);
+    show('sell-form', true);
+  }
+
+  function openPayScreen(saleId) {
+    var item = findWaiting(saleId);
+    if (!item) { return; }
+    ui.payingId = saleId;
+    renderOnline();
+    setText('pay-amount', core.formatCents(item.amountCents));
+    setText('pay-number', 'Sale ' + item.saleNumber);
+    var drawn = false;
+    if (typeof window.qrcode === 'function') {
+      try {
+        var qr = window.qrcode(0, 'M');
+        qr.addData(item.authorizationUrl);
+        qr.make();
+        el('pay-qr').src = qr.createDataURL(7, 2);
+        drawn = true;
+      } catch (e) {
+        drawn = false;
+      }
+    }
+    show('pay-qr', drawn);
+    setText('pay-help', drawn
+      ? 'Ask the customer to scan this code with their phone camera, then pay on their phone (M-Pesa or card). This screen updates by itself when the payment arrives.'
+      : 'The payment code could not be drawn on this iPad. Use "Pay on this iPad instead".');
+    say('pay-status', 'warn', 'Waiting for the payment...');
+    show('receipt-box', false);
+    show('sell-form', false);
+    show('pay-screen', true);
+    showTab('sell');
+    schedulePayPoll(PAY_POLL_MS);
+  }
+
+  /** The payment was confirmed: leave the waiting screen and show the receipt. */
+  function paidNow(saleId) {
+    var entry = historyFor(saleId);
+    stopPayPoll();
+    ui.payingId = null;
+    show('pay-screen', false);
+    renderAll();
+    if (entry && entry.payment === 'paid') {
+      ui.receiptId = saleId;
+      showReceipt(entry.receipt);
+      sendWaitingSales();
+    } else {
+      show('sell-form', true);
+    }
+  }
+
+  function payPoll(manual) {
+    if (!ui.payingId) { return; }
+    var id = ui.payingId;
+    if (manual) { setBusy('pay-check', true, 'Checking...'); }
+    core.checkOnline(function (error) {
+      if (manual) { setBusy('pay-check', false, 'Check now'); }
+      if (ui.payingId !== id) { return; }
+      if (!findWaiting(id)) {
+        paidNow(id);
+        return;
+      }
+      if (error) {
+        say('pay-status', 'warn', error.code === 'offline' ? 'No internet right now. The payment is still waiting; checking again...' : 'Waiting for the payment... (' + error.message + ')');
+      } else {
+        say('pay-status', 'warn', 'Waiting for the payment...');
+      }
+      schedulePayPoll(PAY_POLL_MS);
+    });
+  }
+
+  /** Ends a payment the customer is not going to make. Needs the internet: one last check first, so money that just arrived is never thrown away. */
+  function cancelPayment(saleId, messageBoxId) {
+    if (!window.confirm('Cancel this payment? Tell the customer NOT to pay. The items go back into stock.')) { return; }
+    core.cancelOnline(saleId, function (error, outcome) {
+      if (error) {
+        say(messageBoxId, 'bad', error.message);
+        return;
+      }
+      if (outcome.outcome === 'paid') {
+        say('till-message', 'ok', 'The customer had just paid, so the sale was completed instead of cancelled.');
+        paidNow(saleId);
+        return;
+      }
+      if (ui.payingId === saleId) { closePayScreen(); }
+      renderAll();
+      sendWaitingSales();
+    });
+  }
+
+  el('pay-check').onclick = function () { payPoll(true); };
+  el('pay-cancel').onclick = function () { if (ui.payingId) { cancelPayment(ui.payingId, 'pay-status'); } };
+  el('pay-later').onclick = function () { closePayScreen(); renderAll(); };
+  el('pay-open').onclick = function () {
+    var item = ui.payingId ? findWaiting(ui.payingId) : null;
+    if (!item) { return; }
+    if (window.confirm('Open the payment page on this iPad? The till is left for now; the sale stays waiting and is checked when you come back to it.')) {
+      window.location.href = item.authorizationUrl;
+    }
+  };
+
+  function renderNotices() {
+    var box = el('till-notices');
+    box.innerHTML = '';
+    var list = core.notices();
+    for (var i = 0; i < list.length; i++) {
+      (function (notice) {
+        var node = make('div', 'notice ' + notice.kind, notice.text + ' ');
+        var done = make('button', 'small secondary', 'OK');
+        done.type = 'button';
+        done.onclick = function () { core.dismissNotice(notice.id); renderNotices(); };
+        node.appendChild(done);
+        box.appendChild(node);
+      }(list[i]));
+    }
+  }
+
+  function renderOnline() {
+    var box = el('till-online');
+    box.innerHTML = '';
+    var list = [];
+    var all = core.online();
+    for (var w = 0; w < all.length; w++) {
+      // The payment on the screen right now is already shown there in full.
+      if (all[w].saleId !== ui.payingId) { list.push(all[w]); }
+    }
+    if (list.length === 0) { return; }
+    var card = make('div', 'card');
+    card.appendChild(make('h2', '', list.length === 1 ? 'A payment is waiting' : list.length + ' payments are waiting'));
+    var table = make('table');
+    var body = make('tbody');
+    for (var i = 0; i < list.length; i++) {
+      (function (item) {
+        var row = make('tr', 'waitrow');
+        var info = make('td', '', item.saleNumber);
+        info.appendChild(make('div', 'sku', timeText(item.createdAt) + ' · waiting for the customer'));
+        row.appendChild(info);
+        row.appendChild(make('td', 'num', core.formatCents(item.amountCents)));
+        var actions = make('td', 'num');
+        var showIt = make('button', 'small secondary', 'Show');
+        showIt.type = 'button';
+        showIt.onclick = function () { openPayScreen(item.saleId); };
+        var cancelIt = make('button', 'small secondary', 'Cancel');
+        cancelIt.type = 'button';
+        cancelIt.onclick = function () { cancelPayment(item.saleId, 'till-message'); };
+        actions.appendChild(showIt);
+        actions.appendChild(cancelIt);
+        row.appendChild(actions);
+        body.appendChild(row);
+      }(list[i]));
+    }
+    table.appendChild(body);
+    card.appendChild(table);
+    box.appendChild(card);
+  }
+
+  /** In the background (and when the page opens): has any waiting payment been made? */
+  function checkWaitingPayments() {
+    if (!core.getStatus().onlineWaiting) { return; }
+    core.checkOnline(function (error, outcome) {
+      if (outcome && outcome.paid > 0) { sendWaitingSales(); }
+      if (ui.payingId && !findWaiting(ui.payingId)) { paidNow(ui.payingId); return; }
+      if (core.currentUser()) { renderAll(); } else { route(); }
+    });
+  }
+
   // ---- the Sales tab -----------------------------------------------------------------------------------------
   function renderSales() {
     var body = el('sales-rows');
@@ -494,12 +751,14 @@
       (function (entry) {
         var row = make('tr');
         var info = make('td', '', entry.receipt.saleNumber);
-        info.appendChild(make('div', 'sku', timeText(entry.receipt.createdAt) + ' · ' + (entry.receipt.paymentMethod === 'cash' ? 'Cash' : 'M-Pesa')));
+        info.appendChild(make('div', 'sku', timeText(entry.receipt.createdAt) + ' · ' + methodLabel(entry.receipt.paymentMethod)));
         if (entry.status === 'rejected') { info.appendChild(make('div', 'sku', entry.error)); }
         row.appendChild(info);
         row.appendChild(make('td', 'num', core.formatCents(entry.receipt.totalCents)));
         var state = make('td', 'num');
         var label = entry.status === 'sent' ? ['sent', 'Sent'] : (entry.status === 'rejected' ? ['lost', 'NOT recorded'] : (entry.status === 'discarded' ? ['waiting', 'Removed'] : ['waiting', 'Waiting']));
+        if (entry.payment === 'awaiting') { label = ['waiting', 'Awaiting payment']; }
+        else if (entry.payment === 'cancelled' && entry.status !== 'rejected') { label = ['cancel', 'Cancelled']; }
         state.appendChild(make('span', 'badge ' + label[0], label[1]));
         if (entry.status === 'rejected' && user && user.roleName === 'Admin') {
           var remove = make('button', 'small secondary', 'Remove');
@@ -624,7 +883,16 @@
   el('login-refresh').onclick = function () { doSync(true, 'login-refresh', 'login-message'); };
   el('till-refresh').onclick = function () { doSync(true, 'till-refresh', 'till-message'); };
 
-  el('logout-button').onclick = function () { core.logout(); ui.cart = []; ui.receiptId = null; route(); };
+  function leaveTill() {
+    core.logout();
+    ui.cart = [];
+    ui.receiptId = null;
+    stopPayPoll();
+    ui.payingId = null;
+    show('pay-screen', false);
+    route();
+  }
+  el('logout-button').onclick = leaveTill;
   el('forget-button').onclick = function () {
     var pending = core.getStatus().pendingSales + core.getStatus().rejectedSales;
     var warning = pending > 0
@@ -641,7 +909,7 @@
   function armIdleTimer() {
     if (idleTimer) { window.clearTimeout(idleTimer); }
     if (!core.currentUser()) { return; }
-    idleTimer = window.setTimeout(function () { core.logout(); ui.cart = []; ui.receiptId = null; route(); }, IDLE_LOGOUT_MS);
+    idleTimer = window.setTimeout(leaveTill, IDLE_LOGOUT_MS);
   }
   var activity = ['touchstart', 'click', 'keydown'];
   for (var a = 0; a < activity.length; a++) {
@@ -652,11 +920,13 @@
   window.setInterval(function () {
     if (core.getStatus().joined) { doSync(false); }
   }, SYNC_EVERY_MS);
-  window.addEventListener('online', function () { if (core.getStatus().joined) { doSync(false); } }, false);
+  window.addEventListener('online', function () { if (core.getStatus().joined) { doSync(false); checkWaitingPayments(); } }, false);
+  window.setInterval(checkWaitingPayments, BACKGROUND_PAY_CHECK_MS);
 
   // ---- start -------------------------------------------------------------------------------------------------
   route();
   if (core.getStatus().joined) {
     doSync(false);
+    checkWaitingPayments();
   }
 }());

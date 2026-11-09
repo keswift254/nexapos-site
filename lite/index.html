@@ -40,6 +40,7 @@
     .badge.sent { background: #d9f2e0; color: #1c5a2e; }
     .badge.waiting { background: #fff0c2; color: #6b4b00; }
     .badge.lost { background: #fbd5d5; color: #8a1c1c; }
+    .badge.cancel { background: #e4e5f2; color: #2b2b44; }
     .seg { display: -webkit-flex; display: flex; margin: 6px 0; }
     .seg button { -webkit-flex: 1; flex: 1; margin: 0 6px 0 0; background: #e4e5f2; color: #2b2b44; }
     .seg button.on { background: #4f46e5; color: #fff; }
@@ -50,6 +51,11 @@
     .qty { display: inline-block; min-width: 28px; text-align: center; font-weight: 700; font-size: 18px; }
     .receipt { background: #fff; border: 2px dashed #b9bcd0; border-radius: 12px; padding: 16px; }
     .receipt .big { font-size: 28px; font-weight: 800; }
+    .qr { display: block; margin: 12px auto; max-width: 100%; height: auto; background: #fff; padding: 8px; border-radius: 8px; }
+    .paycard { text-align: center; }
+    .paycard .big { font-size: 30px; font-weight: 800; margin: 4px 0; }
+    .waitrow td { padding: 10px 4px; }
+    .notice button { margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -98,6 +104,8 @@
       </div>
       <div id="till-license"></div>
       <div id="till-sales"></div>
+      <div id="till-notices"></div>
+      <div id="till-online"></div>
       <div class="tabs">
         <div class="tab on" id="tab-sell">Sell</div>
         <div class="tab" id="tab-products">Products</div>
@@ -107,6 +115,22 @@
       <!-- SELL -->
       <div id="panel-sell">
         <div id="receipt-box" class="hidden"></div>
+        <div id="pay-screen" class="hidden">
+          <div class="card paycard">
+            <h2>Waiting for the customer to pay</h2>
+            <div class="big" id="pay-amount"></div>
+            <div class="muted" id="pay-number"></div>
+            <img id="pay-qr" class="qr hidden" alt="Payment code">
+            <p id="pay-help">Ask the customer to scan this code with their phone camera, then pay on their phone (M-Pesa or card). This screen updates by itself.</p>
+            <div id="pay-status"></div>
+            <button id="pay-check" class="secondary" type="button">Check now</button>
+            <button id="pay-open" class="secondary" type="button">Pay on this iPad instead</button>
+            <div>
+              <button id="pay-later" class="secondary" type="button">Start another sale (keep this one waiting)</button>
+              <button id="pay-cancel" class="secondary" type="button">Cancel this payment</button>
+            </div>
+          </div>
+        </div>
         <div id="sell-form">
           <div class="card">
             <input id="sell-search" type="text" placeholder="Find a product: name, code or barcode" autocapitalize="none" autocorrect="off" autocomplete="off">
@@ -139,6 +163,7 @@
             <div class="seg" id="pay-seg">
               <button type="button" id="pay-cash" class="on">Cash</button>
               <button type="button" id="pay-mpesa">M-Pesa (already received)</button>
+              <button type="button" id="pay-paystack">Online (Paystack)</button>
             </div>
             <div id="pay-cash-box">
               <label for="cash-received">Cash received</label>
@@ -150,6 +175,11 @@
                 <div><label for="mpesa-ref">M-Pesa code (optional)</label><input id="mpesa-ref" type="text" autocapitalize="characters" autocorrect="off" autocomplete="off"></div>
               </div>
               <p class="muted">Only choose this after the money has arrived on the till's M-Pesa. NexaPOS Lite does not send M-Pesa requests.</p>
+            </div>
+            <div id="pay-paystack-box" class="hidden">
+              <label for="paystack-phone">Customer phone (optional)</label>
+              <input id="paystack-phone" type="text" inputmode="tel" autocomplete="off">
+              <p class="muted">The customer pays on their own phone by scanning a code, so this needs the internet. The sale is kept as waiting until the payment arrives.</p>
             </div>
             <table class="totals" style="margin-top:12px"><tbody id="totals"></tbody></table>
             <div id="sell-message"></div>
@@ -193,8 +223,9 @@
     <p class="muted" style="margin-top:26px">NexaPOS Lite</p>
   </div>
   <script src="bcrypt.min.js?v=2"></script>
-  <script src="lite-sale.js?v=2"></script>
-  <script src="lite-core.js?v=2"></script>
-  <script src="lite.js?v=2"></script>
+  <script src="qrcode.js?v=1"></script>
+  <script src="lite-sale.js?v=3"></script>
+  <script src="lite-core.js?v=3"></script>
+  <script src="lite.js?v=3"></script>
 </body>
 </html>

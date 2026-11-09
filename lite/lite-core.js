@@ -104,7 +104,7 @@
 
     // ---- storage ----------------------------------------------------------------------------------------
     function blank() {
-      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [] };
+      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [], online: [], notices: [] };
     }
 
     function load() {
@@ -116,6 +116,8 @@
             parsed.nextRev = parsed.nextRev || 1;
             parsed.outbox = parsed.outbox || [];
             parsed.history = parsed.history || [];
+            parsed.online = parsed.online || [];
+            parsed.notices = parsed.notices || [];
             return parsed;
           }
         }
@@ -483,25 +485,265 @@
       if (!built.ok) {
         return built;
       }
+      commitBuilt(built, null);
+      return { ok: true, receipt: built.receipt };
+    }
+
+    /** Saves a built sale on the iPad (outbox, history, stock). Shared by cash/M-Pesa sales and online ones. */
+    function commitBuilt(built, onlineInfo) {
       state.nextRev = built.nextRev;
-      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null });
-      state.history.unshift({ receipt: built.receipt, status: 'queued', error: null });
+      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: 'sale' });
+      state.history.unshift({ receipt: built.receipt, status: 'queued', error: null, payment: onlineInfo ? 'awaiting' : null });
       if (state.history.length > 100) {
         state.history.length = 100;
       }
-      var map = productMap();
-      for (var i = 0; i < built.changes.length; i++) {
-        var change = built.changes[i];
-        if (change.table_name === 'stock_movements' && map[change.payload.productId]) {
-          map[change.payload.productId].stockQty += change.payload.quantity;
-        }
+      adjustStock(built.changes);
+      if (onlineInfo) {
+        onlineInfo.original = built.changes;
+        onlineInfo.receipt = built.receipt;
+        state.online.push(onlineInfo);
       }
       save();
-      return { ok: true, receipt: built.receipt };
+    }
+
+    /** Moves the iPad's own stock figures by the stock movements of a batch (a sale takes out, a return puts back). */
+    function adjustStock(changes) {
+      var map = productMap();
+      for (var i = 0; i < changes.length; i++) {
+        if (changes[i].table_name === 'stock_movements' && map[changes[i].payload.productId]) {
+          map[changes[i].payload.productId].stockQty += changes[i].payload.quantity;
+        }
+      }
+    }
+
+    // ---- online (Paystack) payments -----------------------------------------------------------------------
+    function currencyCode() {
+      var business = state.catalog ? state.catalog.business : null;
+      return business && business.currency ? String(business.currency).toUpperCase() : 'KES';
+    }
+
+    function addNotice(kind, text) {
+      state.notices.unshift({ id: random(6), kind: kind, text: text, at: now() });
+      if (state.notices.length > 20) {
+        state.notices.length = 20;
+      }
+    }
+
+    /**
+     * Starts an online payment, in the app's order: Paystack is asked FIRST (it needs the internet), and only when it
+     * has accepted the payment is the sale recorded as pending (stock reserved). Nothing is recorded if Paystack
+     * does not accept it. cb(error) or cb(null, {receipt, authorizationUrl, reference}).
+     */
+    function startOnline(request, cb) {
+      var blocked = sellBlock();
+      if (blocked) {
+        cb(problem('blocked', blocked));
+        return;
+      }
+      var saleNumber = options.sale.newSaleNumber(state.device.id, now(), random);
+      var cashierId = session.id; // the cashier may log out (idle) while Paystack answers; the sale is still theirs
+      function buildNow() {
+        return options.sale.build({
+          cart: request.cart, products: productMap(), saleType: request.saleType, paymentMethod: 'paystack',
+          discountCents: request.discountCents, customerName: request.customerName, customerPhone: request.customerPhone,
+          userId: cashierId, deviceId: state.device.id, now: now, nextRev: state.nextRev, randomHex: random, saleNumber: saleNumber
+        });
+      }
+      var built = buildNow();
+      if (!built.ok) {
+        cb(problem('input', built.message));
+        return;
+      }
+      var startedAtRev = state.nextRev;
+      var body = { email: 'till@nexapos.cc', amount: built.receipt.totalCents, currency: currencyCode(), reference: saleNumber, return_to: 'lite' };
+      var phone = String(request.customerPhone || '').replace(/[^0-9+]/g, '');
+      if (phone) {
+        body.customer_phone = phone;
+      }
+      call('POST', 'initialize_transaction', body, function (error, response) {
+        if (error) {
+          cb(error.code === 'offline'
+            ? problem('offline', 'Paying online needs the internet. Check the connection, or take cash or M-Pesa instead.')
+            : error);
+          return;
+        }
+        var data = response && response.data ? response.data : null;
+        if (!response || response.status !== true || !data || !data.authorization_url) {
+          cb(problem('server', 'The payment service did not give a payment page. Nothing was charged. Try again.'));
+          return;
+        }
+        // Something else may have used revision numbers while Paystack was answering: build again on the current ones.
+        if (state.nextRev !== startedAtRev) {
+          built = buildNow();
+          if (!built.ok) {
+            cb(problem('input', built.message));
+            return;
+          }
+        }
+        commitBuilt(built, {
+          saleId: built.receipt.saleId, saleNumber: saleNumber, amountCents: built.receipt.totalCents, currency: body.currency,
+          authorizationUrl: String(data.authorization_url), createdAt: now()
+        });
+        cb(null, { receipt: built.receipt, authorizationUrl: String(data.authorization_url), reference: saleNumber });
+      });
+    }
+
+    function findOnline(saleId) {
+      for (var i = 0; i < state.online.length; i++) {
+        if (state.online[i].saleId === saleId) {
+          return state.online[i];
+        }
+      }
+      return null;
+    }
+
+    /** Turns a waiting online sale into its settling batch (paid or cancelled), queued behind the sale itself. */
+    function settleOnline(item, outcome) {
+      if (state.online.indexOf(item) < 0) {
+        return { ok: false, message: 'That payment was already settled.' };
+      }
+      var settled = options.sale.settle({ original: item.original, outcome: outcome, deviceId: state.device.id, now: now, nextRev: state.nextRev, randomHex: random });
+      if (!settled.ok) {
+        return settled;
+      }
+      state.nextRev = settled.nextRev;
+      state.outbox.push({ id: item.saleId + ':' + outcome, changes: settled.changes, receipt: item.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: 'settle-' + outcome });
+      adjustStock(settled.changes.filter(function (c) { return c.table_name === 'stock_movements'; }));
+      var shown = historyEntry(item.saleId);
+      if (shown) {
+        shown.payment = outcome;
+      }
+      state.online.splice(state.online.indexOf(item), 1);
+      addNotice(outcome === 'paid' ? 'ok' : 'warn', outcome === 'paid'
+        ? 'Payment received for sale ' + item.saleNumber + ' (' + currencyCode() + ' ' + formatCents(item.amountCents) + ').'
+        : 'Sale ' + item.saleNumber + ' was cancelled and its stock put back.');
+      save();
+      return { ok: true };
+    }
+
+    /** Asks the server what Paystack says about one reference. cb(error) or cb(null, {paid, status}). */
+    function verifyOne(item, cb) {
+      call('GET', 'verify_transaction&reference=' + encodeURIComponent(item.saleNumber), null, function (error, response) {
+        if (error) {
+          cb(error.code === 'offline' ? error : problem(error.code, 'Could not check the payment yet.'));
+          return;
+        }
+        var data = response && response.data ? response.data : {};
+        var amountOk = Number(data.amount) === item.amountCents;
+        var currencyOk = String(data.currency || '').toUpperCase() === item.currency;
+        cb(null, { paid: response.status === true && String(data.status || '').toLowerCase() === 'success' && amountOk && currencyOk, status: String(data.status || ''), mismatch: String(data.status || '').toLowerCase() === 'success' && !(amountOk && currencyOk) });
+      });
+    }
+
+    var checking = false;
+
+    /**
+     * Checks every online payment still waiting; a confirmed one is settled as paid. Not paid yet is NOT a failure:
+     * the customer may still pay, so only the cashier cancelling ends a payment. cb(error|null, {paid, waiting}).
+     */
+    function checkOnline(cb) {
+      cb = cb || function () {};
+      if (checking) {
+        cb(null, { paid: 0, waiting: state.online.length, busy: true });
+        return;
+      }
+      var items = state.online.slice(0);
+      var paid = 0;
+      var stoppedBy = null;
+      checking = true;
+      (function next(index) {
+        if (index >= items.length) {
+          checking = false;
+          cb(stoppedBy, { paid: paid, waiting: state.online.length });
+          return;
+        }
+        verifyOne(items[index], function (error, result) {
+          if (error) {
+            stoppedBy = error;
+            next(index + 1);
+            return;
+          }
+          if (result.mismatch) {
+            if (!items[index].mismatchNoticed) {
+              // Said once per payment, not on every check.
+              items[index].mismatchNoticed = true;
+              addNotice('bad', 'Paystack reports a payment for sale ' + items[index].saleNumber + ' that does not match the amount. Tell the owner. The sale was NOT completed.');
+              save();
+            }
+          } else if (result.paid && findOnline(items[index].saleId)) {
+            if (settleOnline(items[index], 'paid').ok) {
+              paid += 1;
+            }
+          }
+          next(index + 1);
+        });
+      }(0));
+    }
+
+    /**
+     * The cashier gives up on a waiting online payment. One last check first, so a payment that has just arrived is
+     * never cancelled; with no internet it is refused (nothing can be checked), and the sale simply keeps waiting.
+     */
+    function cancelOnline(saleId, cb) {
+      var item = findOnline(saleId);
+      if (!item) {
+        cb(problem('input', 'That payment is not waiting.'));
+        return;
+      }
+      verifyOne(item, function (error, result) {
+        if (error) {
+          cb(problem(error.code, 'Cannot cancel until the payment can be checked. Check the internet connection, then try again.'));
+          return;
+        }
+        if (!findOnline(saleId)) {
+          // A check running at the same time has already settled it; there is nothing left to cancel.
+          cb(problem('input', 'That payment was already settled.'));
+          return;
+        }
+        if (result.paid) {
+          settleOnline(item, 'paid');
+          cb(null, { outcome: 'paid' });
+          return;
+        }
+        if (result.mismatch) {
+          cb(problem('input', 'Paystack shows a payment for this sale that does not match its amount, so it cannot be cancelled here. Tell the owner.'));
+          return;
+        }
+        var cancelled = settleOnline(item, 'cancelled');
+        if (!cancelled.ok) {
+          cb(problem('input', cancelled.message));
+          return;
+        }
+        cb(null, { outcome: 'cancelled' });
+      });
+    }
+
+    function onlineList() {
+      var out = [];
+      for (var i = 0; i < state.online.length; i++) {
+        out.push({ saleId: state.online[i].saleId, saleNumber: state.online[i].saleNumber, amountCents: state.online[i].amountCents, createdAt: state.online[i].createdAt, authorizationUrl: state.online[i].authorizationUrl });
+      }
+      return out;
+    }
+
+    function dismissNotice(id) {
+      for (var i = 0; i < state.notices.length; i++) {
+        if (state.notices[i].id === id) {
+          state.notices.splice(i, 1);
+          save();
+          return;
+        }
+      }
     }
 
     var flushing = false;
     var flushWaiting = [];
+
+    /** A settle refused only because the sale is already in the very state it was settling to. */
+    function alreadySettled(entry, message) {
+      return (entry.kind === 'settle-paid' && String(message).indexOf("'paid' to 'paid'") >= 0)
+        || (entry.kind === 'settle-cancelled' && String(message).indexOf("'cancelled' to 'cancelled'") >= 0);
+    }
 
     function firstPending() {
       for (var i = 0; i < state.outbox.length; i++) {
@@ -571,7 +813,7 @@
             if (index >= 0) {
               state.outbox.splice(index, 1);
             }
-            var done = historyEntry(entry.id);
+            var done = historyEntry(entry.receipt.saleId);
             if (done) {
               done.status = 'sent';
             }
@@ -592,10 +834,18 @@
             finish();
             return;
           }
+          if (alreadySettled(entry, error.message)) {
+            // Another device already recorded this very outcome: nothing is missing from the books.
+            sent += 1;
+            state.outbox.splice(state.outbox.indexOf(entry), 1);
+            save();
+            next();
+            return;
+          }
           entry.status = 'rejected';
           entry.error = error.message;
           refused += 1;
-          var shown = historyEntry(entry.id);
+          var shown = historyEntry(entry.receipt.saleId);
           if (shown) {
             shown.status = 'rejected';
             shown.error = error.message;
@@ -653,6 +903,7 @@
         storageOk: storageOk,
         deviceLabel: state.device ? state.device.label : '',
         pendingSales: outboxSummary().pending,
+        onlineWaiting: state.online.length,
         rejectedSales: outboxSummary().rejected.length,
         sellBlockedReason: sellBlock()
       };
@@ -683,6 +934,12 @@
       getStatus: getStatus,
       forget: forget,
       sell: sell,
+      startOnline: startOnline,
+      checkOnline: checkOnline,
+      cancelOnline: cancelOnline,
+      online: onlineList,
+      notices: function () { return state.notices; },
+      dismissNotice: dismissNotice,
       flush: flush,
       sync: sync,
       outbox: outboxSummary,

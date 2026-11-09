@@ -81,18 +81,18 @@
       "changes": [
         {
           "table_name": "sales",
-          "row_id": "024230b4-f477-4b23-9348-200ec2561162",
+          "row_id": "2a8c0fba-52af-4d2d-a4a5-1d9b1aae24b9",
           "local_rev": 1,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "024230b4-f477-4b23-9348-200ec2561162",
+            "id": "2a8c0fba-52af-4d2d-a4a5-1d9b1aae24b9",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 1,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleNumber": "012345-20261108130000-PMKL",
+            "saleNumber": "012345-20261108130000-CI19",
             "userId": "00000000-0000-4000-8000-000000000004",
             "customerName": "Walk-in customer",
             "customerPhone": null,
@@ -107,18 +107,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "79a5187c-9587-4b96-a2c0-26975041b0ea",
+          "row_id": "4ed6d1ea-80bc-48ff-a089-d830fc8f9b7c",
           "local_rev": 2,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "79a5187c-9587-4b96-a2c0-26975041b0ea",
+            "id": "4ed6d1ea-80bc-48ff-a089-d830fc8f9b7c",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 2,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "024230b4-f477-4b23-9348-200ec2561162",
+            "saleId": "2a8c0fba-52af-4d2d-a4a5-1d9b1aae24b9",
             "productId": "00000000-0000-4000-8000-000000000002",
             "itemName": "Soda 500ml",
             "quantity": 2,
@@ -129,18 +129,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "1a3e3628-1e81-494d-97f2-9618e5f8f842",
+          "row_id": "65d186e6-5ef9-4c3d-849b-f5a147a657bd",
           "local_rev": 3,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "1a3e3628-1e81-494d-97f2-9618e5f8f842",
+            "id": "65d186e6-5ef9-4c3d-849b-f5a147a657bd",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 3,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "024230b4-f477-4b23-9348-200ec2561162",
+            "saleId": "2a8c0fba-52af-4d2d-a4a5-1d9b1aae24b9",
             "productId": "00000000-0000-4000-8000-000000000003",
             "itemName": "Bread",
             "quantity": 1,
@@ -151,11 +151,11 @@
         },
         {
           "table_name": "stock_movements",
-          "row_id": "38280084-9af3-4a03-926c-3c417de2a504",
+          "row_id": "d2b73557-6733-45cf-9618-5a9f749cc2b8",
           "local_rev": 4,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "38280084-9af3-4a03-926c-3c417de2a504",
+            "id": "d2b73557-6733-45cf-9618-5a9f749cc2b8",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
@@ -166,16 +166,16 @@
             "userId": "00000000-0000-4000-8000-000000000004",
             "movementType": "sale",
             "quantity": -2,
-            "note": "Sale 012345-20261108130000-PMKL"
+            "note": "Sale 012345-20261108130000-CI19"
           }
         },
         {
           "table_name": "stock_movements",
-          "row_id": "5879cf6a-3c12-4893-94ec-9ab9ca64d6a6",
+          "row_id": "56a16421-e6b6-43f8-bf90-92d3bea5ebc3",
           "local_rev": 5,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "5879cf6a-3c12-4893-94ec-9ab9ca64d6a6",
+            "id": "56a16421-e6b6-43f8-bf90-92d3bea5ebc3",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
@@ -186,7 +186,7 @@
             "userId": "00000000-0000-4000-8000-000000000004",
             "movementType": "sale",
             "quantity": -1,
-            "note": "Sale 012345-20261108130000-PMKL"
+            "note": "Sale 012345-20261108130000-CI19"
           }
         }
       ],
@@ -215,18 +215,18 @@
       "changes": [
         {
           "table_name": "sales",
-          "row_id": "d9c3cdc1-13d0-4f28-9077-07e8f8aa66c4",
+          "row_id": "dda89c48-a071-4602-8b7e-ba89f6848850",
           "local_rev": 6,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "d9c3cdc1-13d0-4f28-9077-07e8f8aa66c4",
+            "id": "dda89c48-a071-4602-8b7e-ba89f6848850",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 6,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleNumber": "012345-20261108130000-VVE4",
+            "saleNumber": "012345-20261108130000-MD1F",
             "userId": "00000000-0000-4000-8000-000000000004",
             "customerName": "Wanjiru K",
             "customerPhone": null,
@@ -241,18 +241,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "7f62de7e-3d35-4336-9d0b-beb7783b5091",
+          "row_id": "b0af93e9-afa8-4820-88cb-f5cb87e39285",
           "local_rev": 7,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "7f62de7e-3d35-4336-9d0b-beb7783b5091",
+            "id": "b0af93e9-afa8-4820-88cb-f5cb87e39285",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 7,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "d9c3cdc1-13d0-4f28-9077-07e8f8aa66c4",
+            "saleId": "dda89c48-a071-4602-8b7e-ba89f6848850",
             "productId": "00000000-0000-4000-8000-000000000002",
             "itemName": "Soda 500ml",
             "quantity": 3,
@@ -263,11 +263,11 @@
         },
         {
           "table_name": "stock_movements",
-          "row_id": "83c1009a-a8b9-437b-a087-fd76f32ab601",
+          "row_id": "d1345168-81a4-4476-a311-d23383b3aeb4",
           "local_rev": 8,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "83c1009a-a8b9-437b-a087-fd76f32ab601",
+            "id": "d1345168-81a4-4476-a311-d23383b3aeb4",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
@@ -278,7 +278,7 @@
             "userId": "00000000-0000-4000-8000-000000000004",
             "movementType": "sale",
             "quantity": -3,
-            "note": "Sale 012345-20261108130000-VVE4"
+            "note": "Sale 012345-20261108130000-MD1F"
           }
         }
       ],
@@ -303,18 +303,18 @@
       "changes": [
         {
           "table_name": "sales",
-          "row_id": "cad76c7e-2bea-4f19-a26f-2fea08f2074d",
+          "row_id": "67237b29-b1dc-4306-8fcf-cd7a560a12ac",
           "local_rev": 9,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "cad76c7e-2bea-4f19-a26f-2fea08f2074d",
+            "id": "67237b29-b1dc-4306-8fcf-cd7a560a12ac",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 9,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleNumber": "012345-20261108130000-6YDE",
+            "saleNumber": "012345-20261108130000-9AC2",
             "userId": "00000000-0000-4000-8000-000000000004",
             "customerName": "Walk-in customer",
             "customerPhone": "0712345678",
@@ -329,18 +329,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "406c8965-24ab-4c09-96dc-0dc832fe6db0",
+          "row_id": "8325b438-e719-4228-9a59-b3e73f501e24",
           "local_rev": 10,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "406c8965-24ab-4c09-96dc-0dc832fe6db0",
+            "id": "8325b438-e719-4228-9a59-b3e73f501e24",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 10,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "cad76c7e-2bea-4f19-a26f-2fea08f2074d",
+            "saleId": "67237b29-b1dc-4306-8fcf-cd7a560a12ac",
             "productId": "00000000-0000-4000-8000-000000000003",
             "itemName": "Bread",
             "quantity": 2,
@@ -351,11 +351,11 @@
         },
         {
           "table_name": "stock_movements",
-          "row_id": "0fe690a9-2776-45d6-8e70-6d943e0b4db1",
+          "row_id": "42455bd4-cd60-45b1-b66a-ee14ef687a4a",
           "local_rev": 11,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "0fe690a9-2776-45d6-8e70-6d943e0b4db1",
+            "id": "42455bd4-cd60-45b1-b66a-ee14ef687a4a",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
@@ -366,23 +366,23 @@
             "userId": "00000000-0000-4000-8000-000000000004",
             "movementType": "sale",
             "quantity": -2,
-            "note": "Sale 012345-20261108130000-6YDE"
+            "note": "Sale 012345-20261108130000-9AC2"
           }
         },
         {
           "table_name": "payment_records",
-          "row_id": "8010d527-85e1-4b47-a8f1-9575317b0839",
+          "row_id": "8bdeceee-cc4a-40e5-ba5a-b7c154921a73",
           "local_rev": 12,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "8010d527-85e1-4b47-a8f1-9575317b0839",
+            "id": "8bdeceee-cc4a-40e5-ba5a-b7c154921a73",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 12,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "cad76c7e-2bea-4f19-a26f-2fea08f2074d",
+            "saleId": "67237b29-b1dc-4306-8fcf-cd7a560a12ac",
             "method": "mpesa_manual",
             "amountCents": 15000,
             "referenceNote": "QWE123XYZ9",
@@ -416,18 +416,18 @@
       "changes": [
         {
           "table_name": "sales",
-          "row_id": "e99b8c1b-b6fe-4f52-add8-f19676327d94",
+          "row_id": "02a2109a-1586-4ec4-9344-a9064380b527",
           "local_rev": 13,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "e99b8c1b-b6fe-4f52-add8-f19676327d94",
+            "id": "02a2109a-1586-4ec4-9344-a9064380b527",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 13,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleNumber": "012345-20261108130000-SDE2",
+            "saleNumber": "012345-20261108130000-GCTY",
             "userId": "00000000-0000-4000-8000-000000000004",
             "customerName": "Walk-in customer",
             "customerPhone": null,
@@ -442,18 +442,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "690f64ee-9da5-4389-aa62-1f971a567077",
+          "row_id": "5b329d03-7b3f-4196-a471-5da5b700fa6b",
           "local_rev": 14,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "690f64ee-9da5-4389-aa62-1f971a567077",
+            "id": "5b329d03-7b3f-4196-a471-5da5b700fa6b",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 14,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "e99b8c1b-b6fe-4f52-add8-f19676327d94",
+            "saleId": "02a2109a-1586-4ec4-9344-a9064380b527",
             "productId": "00000000-0000-4000-8000-000000000002",
             "itemName": "Soda 500ml",
             "quantity": 10,
@@ -464,11 +464,11 @@
         },
         {
           "table_name": "stock_movements",
-          "row_id": "89db1a36-4696-4abc-a7e1-94e7e553d977",
+          "row_id": "c4d85410-add2-47fc-8096-adaa8cf4a6c3",
           "local_rev": 15,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "89db1a36-4696-4abc-a7e1-94e7e553d977",
+            "id": "c4d85410-add2-47fc-8096-adaa8cf4a6c3",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
@@ -479,7 +479,7 @@
             "userId": "00000000-0000-4000-8000-000000000004",
             "movementType": "sale",
             "quantity": -10,
-            "note": "Sale 012345-20261108130000-SDE2"
+            "note": "Sale 012345-20261108130000-GCTY"
           }
         }
       ],
@@ -504,18 +504,18 @@
       "changes": [
         {
           "table_name": "sales",
-          "row_id": "8b197263-119c-490e-b282-1ae3853d1a08",
+          "row_id": "8b999bbc-c6d3-4d56-a896-5432aae00c3b",
           "local_rev": 16,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "8b197263-119c-490e-b282-1ae3853d1a08",
+            "id": "8b999bbc-c6d3-4d56-a896-5432aae00c3b",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 16,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleNumber": "012345-20261108130000-C36S",
+            "saleNumber": "012345-20261108130000-PE7C",
             "userId": "00000000-0000-4000-8000-000000000004",
             "customerName": "Walk-in customer",
             "customerPhone": null,
@@ -530,18 +530,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "25b00be2-b47d-4e45-9ecf-835594f6e269",
+          "row_id": "4dacd689-6272-4c9c-ad53-01eb60c426e5",
           "local_rev": 17,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "25b00be2-b47d-4e45-9ecf-835594f6e269",
+            "id": "4dacd689-6272-4c9c-ad53-01eb60c426e5",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 17,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "8b197263-119c-490e-b282-1ae3853d1a08",
+            "saleId": "8b999bbc-c6d3-4d56-a896-5432aae00c3b",
             "productId": null,
             "itemName": "Delivery",
             "quantity": 1,
@@ -552,18 +552,18 @@
         },
         {
           "table_name": "sale_items",
-          "row_id": "7958594e-fcc9-4eb2-8a1a-fe5c70744fcd",
+          "row_id": "69aa4bc8-fa9e-4bdb-a70f-782dd9149b7d",
           "local_rev": 18,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "7958594e-fcc9-4eb2-8a1a-fe5c70744fcd",
+            "id": "69aa4bc8-fa9e-4bdb-a70f-782dd9149b7d",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
             "localRev": 18,
             "createdByDeviceId": "lite-0123456789abcdef01234567",
             "syncState": "local_only",
-            "saleId": "8b197263-119c-490e-b282-1ae3853d1a08",
+            "saleId": "8b999bbc-c6d3-4d56-a896-5432aae00c3b",
             "productId": "00000000-0000-4000-8000-000000000002",
             "itemName": "Soda 500ml",
             "quantity": 1,
@@ -574,11 +574,11 @@
         },
         {
           "table_name": "stock_movements",
-          "row_id": "0a8b756f-df22-4be6-a1cd-8e0a6d4ca5a7",
+          "row_id": "9fa45930-20f6-4834-9513-93c24e95ddbc",
           "local_rev": 19,
           "updated_at": "2026-11-08T10:00:00.000000Z",
           "payload": {
-            "id": "0a8b756f-df22-4be6-a1cd-8e0a6d4ca5a7",
+            "id": "9fa45930-20f6-4834-9513-93c24e95ddbc",
             "createdAt": "2026-11-08T10:00:00.000000Z",
             "updatedAt": "2026-11-08T10:00:00.000000Z",
             "deletedAt": null,
@@ -589,7 +589,7 @@
             "userId": "00000000-0000-4000-8000-000000000004",
             "movementType": "sale",
             "quantity": -1,
-            "note": "Sale 012345-20261108130000-C36S"
+            "note": "Sale 012345-20261108130000-PE7C"
           }
         }
       ],
@@ -607,6 +607,560 @@
             1
           ]
         ]
+      }
+    },
+    {
+      "name": "paystack_waiting",
+      "changes": [
+        {
+          "table_name": "sales",
+          "row_id": "5d2b34ba-9a62-49d2-befb-248d6dfd2c76",
+          "local_rev": 20,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "5d2b34ba-9a62-49d2-befb-248d6dfd2c76",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 20,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleNumber": "ABCDEF-20261108100000-WXYZ",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "customerName": "Walk-in customer",
+            "customerPhone": "0712345678",
+            "saleType": "retail",
+            "paymentMethod": "paystack",
+            "subtotalCents": 19500,
+            "discountCents": 0,
+            "totalCents": 19500,
+            "status": "pending",
+            "cashReceivedCents": null
+          }
+        },
+        {
+          "table_name": "sale_items",
+          "row_id": "cb800237-d085-465b-a936-e8dce1a98554",
+          "local_rev": 21,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "cb800237-d085-465b-a936-e8dce1a98554",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 21,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "5d2b34ba-9a62-49d2-befb-248d6dfd2c76",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "itemName": "Soda 500ml",
+            "quantity": 2,
+            "unitPriceCents": 6000,
+            "costPriceCents": 4000,
+            "lineTotalCents": 12000
+          }
+        },
+        {
+          "table_name": "sale_items",
+          "row_id": "16597009-e809-4f8e-be44-bd87a5b5c695",
+          "local_rev": 22,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "16597009-e809-4f8e-be44-bd87a5b5c695",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 22,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "5d2b34ba-9a62-49d2-befb-248d6dfd2c76",
+            "productId": "00000000-0000-4000-8000-000000000003",
+            "itemName": "Bread",
+            "quantity": 1,
+            "unitPriceCents": 7500,
+            "costPriceCents": 6000,
+            "lineTotalCents": 7500
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "92f950d9-b205-4fc2-9d80-8988bc1c0b52",
+          "local_rev": 23,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "92f950d9-b205-4fc2-9d80-8988bc1c0b52",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 23,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "movementType": "sale",
+            "quantity": -2,
+            "note": "Sale ABCDEF-20261108100000-WXYZ"
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "6b846dc2-b16d-457b-b41f-a734534e0aad",
+          "local_rev": 24,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "6b846dc2-b16d-457b-b41f-a734534e0aad",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 24,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000003",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "movementType": "sale",
+            "quantity": -1,
+            "note": "Sale ABCDEF-20261108100000-WXYZ"
+          }
+        },
+        {
+          "table_name": "payment_records",
+          "row_id": "9fb75579-0f3d-4dbf-ae20-b4faa3a4e47b",
+          "local_rev": 25,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "9fb75579-0f3d-4dbf-ae20-b4faa3a4e47b",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 25,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "5d2b34ba-9a62-49d2-befb-248d6dfd2c76",
+            "method": "paystack",
+            "amountCents": 19500,
+            "referenceNote": "ABCDEF-20261108100000-WXYZ",
+            "status": "initiated"
+          }
+        }
+      ],
+      "expect": {
+        "subtotalCents": 19500,
+        "discountCents": 0,
+        "totalCents": 19500,
+        "status": "pending",
+        "paymentMethod": "paystack",
+        "itemCount": 2,
+        "payment": {
+          "method": "paystack",
+          "amountCents": 19500,
+          "status": "initiated",
+          "referenceNote": "ABCDEF-20261108100000-WXYZ"
+        },
+        "stockSold": [
+          [
+            "00000000-0000-4000-8000-000000000002",
+            2
+          ],
+          [
+            "00000000-0000-4000-8000-000000000003",
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "name": "paystack_paid",
+      "changes": [
+        {
+          "table_name": "sales",
+          "row_id": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+          "local_rev": 26,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 26,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleNumber": "GHIJKL-20261108100100-ABCD",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "customerName": "Walk-in customer",
+            "customerPhone": null,
+            "saleType": "retail",
+            "paymentMethod": "paystack",
+            "subtotalCents": 18000,
+            "discountCents": 1500,
+            "totalCents": 16500,
+            "status": "pending",
+            "cashReceivedCents": null
+          }
+        },
+        {
+          "table_name": "sale_items",
+          "row_id": "af0cf749-e83f-4536-a041-750ebe1772dc",
+          "local_rev": 27,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "af0cf749-e83f-4536-a041-750ebe1772dc",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 27,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "itemName": "Soda 500ml",
+            "quantity": 3,
+            "unitPriceCents": 6000,
+            "costPriceCents": 4000,
+            "lineTotalCents": 18000
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "c4e6eb51-bfb9-47ac-ba09-d86d69610fe8",
+          "local_rev": 28,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "c4e6eb51-bfb9-47ac-ba09-d86d69610fe8",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 28,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "movementType": "sale",
+            "quantity": -3,
+            "note": "Sale GHIJKL-20261108100100-ABCD"
+          }
+        },
+        {
+          "table_name": "payment_records",
+          "row_id": "569ebb31-b840-4a29-b0de-c3cc6f66e5a8",
+          "local_rev": 29,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "569ebb31-b840-4a29-b0de-c3cc6f66e5a8",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 29,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+            "method": "paystack",
+            "amountCents": 16500,
+            "referenceNote": "GHIJKL-20261108100100-ABCD",
+            "status": "initiated"
+          }
+        },
+        {
+          "table_name": "sales",
+          "row_id": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+          "local_rev": 30,
+          "updated_at": "2026-11-08T10:05:00.000000Z",
+          "payload": {
+            "id": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:05:00.000000Z",
+            "deletedAt": null,
+            "localRev": 30,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleNumber": "GHIJKL-20261108100100-ABCD",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "customerName": "Walk-in customer",
+            "customerPhone": null,
+            "saleType": "retail",
+            "paymentMethod": "paystack",
+            "subtotalCents": 18000,
+            "discountCents": 1500,
+            "totalCents": 16500,
+            "status": "paid",
+            "cashReceivedCents": null
+          }
+        },
+        {
+          "table_name": "payment_records",
+          "row_id": "569ebb31-b840-4a29-b0de-c3cc6f66e5a8",
+          "local_rev": 31,
+          "updated_at": "2026-11-08T10:05:00.000000Z",
+          "payload": {
+            "id": "569ebb31-b840-4a29-b0de-c3cc6f66e5a8",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:05:00.000000Z",
+            "deletedAt": null,
+            "localRev": 31,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "9b922757-6a13-4d05-8a5a-688a44b2ffca",
+            "method": "paystack",
+            "amountCents": 16500,
+            "referenceNote": "GHIJKL-20261108100100-ABCD",
+            "status": "paid"
+          }
+        }
+      ],
+      "expect": {
+        "subtotalCents": 18000,
+        "discountCents": 1500,
+        "totalCents": 16500,
+        "status": "paid",
+        "paymentMethod": "paystack",
+        "itemCount": 1,
+        "payment": {
+          "method": "paystack",
+          "amountCents": 16500,
+          "status": "paid",
+          "referenceNote": "GHIJKL-20261108100100-ABCD"
+        },
+        "stockSold": [
+          [
+            "00000000-0000-4000-8000-000000000002",
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "name": "paystack_cancelled",
+      "changes": [
+        {
+          "table_name": "sales",
+          "row_id": "3586452f-c878-427c-90d0-9b01f707b6ea",
+          "local_rev": 32,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "3586452f-c878-427c-90d0-9b01f707b6ea",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 32,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleNumber": "MNOPQR-20261108100200-EFGH",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "customerName": "Walk-in customer",
+            "customerPhone": null,
+            "saleType": "retail",
+            "paymentMethod": "paystack",
+            "subtotalCents": 36000,
+            "discountCents": 0,
+            "totalCents": 36000,
+            "status": "pending",
+            "cashReceivedCents": null
+          }
+        },
+        {
+          "table_name": "sale_items",
+          "row_id": "1966c106-8121-46e5-b082-6df41a412ef0",
+          "local_rev": 33,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "1966c106-8121-46e5-b082-6df41a412ef0",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 33,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "3586452f-c878-427c-90d0-9b01f707b6ea",
+            "productId": "00000000-0000-4000-8000-000000000003",
+            "itemName": "Bread",
+            "quantity": 4,
+            "unitPriceCents": 7500,
+            "costPriceCents": 6000,
+            "lineTotalCents": 30000
+          }
+        },
+        {
+          "table_name": "sale_items",
+          "row_id": "ec821176-3391-4c0c-9972-e77fa1784dec",
+          "local_rev": 34,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "ec821176-3391-4c0c-9972-e77fa1784dec",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 34,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "3586452f-c878-427c-90d0-9b01f707b6ea",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "itemName": "Soda 500ml",
+            "quantity": 1,
+            "unitPriceCents": 6000,
+            "costPriceCents": 4000,
+            "lineTotalCents": 6000
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "ee68c3fe-308f-40ec-ac1c-fb9ec8d61810",
+          "local_rev": 35,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "ee68c3fe-308f-40ec-ac1c-fb9ec8d61810",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 35,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000003",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "movementType": "sale",
+            "quantity": -4,
+            "note": "Sale MNOPQR-20261108100200-EFGH"
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "c51943cb-7ac3-4ab0-9491-e143d801ce21",
+          "local_rev": 36,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "c51943cb-7ac3-4ab0-9491-e143d801ce21",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 36,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "movementType": "sale",
+            "quantity": -1,
+            "note": "Sale MNOPQR-20261108100200-EFGH"
+          }
+        },
+        {
+          "table_name": "payment_records",
+          "row_id": "1e23c32b-e774-422f-810c-70d2c65e315e",
+          "local_rev": 37,
+          "updated_at": "2026-11-08T10:00:00.000000Z",
+          "payload": {
+            "id": "1e23c32b-e774-422f-810c-70d2c65e315e",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:00:00.000000Z",
+            "deletedAt": null,
+            "localRev": 37,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "3586452f-c878-427c-90d0-9b01f707b6ea",
+            "method": "paystack",
+            "amountCents": 36000,
+            "referenceNote": "MNOPQR-20261108100200-EFGH",
+            "status": "initiated"
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "1292f2ae-0ffd-406b-9bf5-e9d406a80eff",
+          "local_rev": 38,
+          "updated_at": "2026-11-08T10:05:00.000000Z",
+          "payload": {
+            "id": "1292f2ae-0ffd-406b-9bf5-e9d406a80eff",
+            "createdAt": "2026-11-08T10:05:00.000000Z",
+            "updatedAt": "2026-11-08T10:05:00.000000Z",
+            "deletedAt": null,
+            "localRev": 38,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000003",
+            "userId": null,
+            "movementType": "return",
+            "quantity": 4,
+            "note": "Online payment not completed"
+          }
+        },
+        {
+          "table_name": "stock_movements",
+          "row_id": "c50b8f69-967d-465a-a725-c2e4bc896a30",
+          "local_rev": 39,
+          "updated_at": "2026-11-08T10:05:00.000000Z",
+          "payload": {
+            "id": "c50b8f69-967d-465a-a725-c2e4bc896a30",
+            "createdAt": "2026-11-08T10:05:00.000000Z",
+            "updatedAt": "2026-11-08T10:05:00.000000Z",
+            "deletedAt": null,
+            "localRev": 39,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "productId": "00000000-0000-4000-8000-000000000002",
+            "userId": null,
+            "movementType": "return",
+            "quantity": 1,
+            "note": "Online payment not completed"
+          }
+        },
+        {
+          "table_name": "sales",
+          "row_id": "3586452f-c878-427c-90d0-9b01f707b6ea",
+          "local_rev": 40,
+          "updated_at": "2026-11-08T10:05:00.000000Z",
+          "payload": {
+            "id": "3586452f-c878-427c-90d0-9b01f707b6ea",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:05:00.000000Z",
+            "deletedAt": null,
+            "localRev": 40,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleNumber": "MNOPQR-20261108100200-EFGH",
+            "userId": "00000000-0000-4000-8000-000000000004",
+            "customerName": "Walk-in customer",
+            "customerPhone": null,
+            "saleType": "retail",
+            "paymentMethod": "paystack",
+            "subtotalCents": 36000,
+            "discountCents": 0,
+            "totalCents": 36000,
+            "status": "cancelled",
+            "cashReceivedCents": null
+          }
+        },
+        {
+          "table_name": "payment_records",
+          "row_id": "1e23c32b-e774-422f-810c-70d2c65e315e",
+          "local_rev": 41,
+          "updated_at": "2026-11-08T10:05:00.000000Z",
+          "payload": {
+            "id": "1e23c32b-e774-422f-810c-70d2c65e315e",
+            "createdAt": "2026-11-08T10:00:00.000000Z",
+            "updatedAt": "2026-11-08T10:05:00.000000Z",
+            "deletedAt": null,
+            "localRev": 41,
+            "createdByDeviceId": "lite-0123456789abcdef01234567",
+            "syncState": "local_only",
+            "saleId": "3586452f-c878-427c-90d0-9b01f707b6ea",
+            "method": "paystack",
+            "amountCents": 36000,
+            "referenceNote": "MNOPQR-20261108100200-EFGH",
+            "status": "failed"
+          }
+        }
+      ],
+      "expect": {
+        "subtotalCents": 36000,
+        "discountCents": 0,
+        "totalCents": 36000,
+        "status": "cancelled",
+        "paymentMethod": "paystack",
+        "itemCount": 2,
+        "payment": {
+          "method": "paystack",
+          "amountCents": 36000,
+          "status": "failed",
+          "referenceNote": "MNOPQR-20261108100200-EFGH"
+        },
+        "stockSold": []
       }
     }
   ]

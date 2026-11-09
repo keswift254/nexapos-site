@@ -52,6 +52,7 @@ function mask(change) {
   p.createdByDeviceId = '<device>';
   if (p.saleNumber) { p.saleNumber = '<saleNumber>'; }
   if (typeof p.note === 'string') { p.note = p.note.replace(/[0-9A-Z]{6}-\d{14}-[0-9A-Z]{4}/, '<saleNumber>'); }
+  if (typeof p.referenceNote === 'string' && /^[0-9A-Z]{6}-\d{14}-[0-9A-Z]{4}$/.test(p.referenceNote)) { p.referenceNote = '<saleNumber>'; }
   return { table_name: change.table_name, payload: p };
 }
 function sorted(value) {
@@ -149,7 +150,7 @@ test('refuses what the app refuses, with the same words', function () {
   var line = function (extra) { var l = { productId: widget.id, name: 'Widget', unitPriceCents: 10000, quantity: 1 }; for (var k in extra) { l[k] = extra[k]; } return l; };
   assert.strictEqual(sell(s, { cart: [] }).message, 'Add at least one product to the sale.');
   assert.strictEqual(sell(s, { cart: [line()], saleType: 'free' }).message, 'Select a valid sale type.');
-  assert.strictEqual(sell(s, { cart: [line()], paymentMethod: 'paystack' }).message, 'Select a valid payment method.');
+  assert.strictEqual(sell(s, { cart: [line()], paymentMethod: 'intasend' }).message, 'Select a valid payment method.');
   assert.strictEqual(sell(s, { cart: [line({ productId: null, name: ' ', unitPriceCents: 500 })] }).message, 'Enter the manual item name.');
   assert.strictEqual(sell(s, { cart: [line({ productId: null, name: 'Fee', unitPriceCents: 0 })] }).message, 'Manual item price must be greater than 0.');
   assert.strictEqual(sell(s, { cart: [line({ productId: null, name: 'Fee', unitPriceCents: 500, quantity: 0 })] }).message, 'Manual item quantity must be at least 1.');
@@ -215,6 +216,108 @@ test('an M-Pesa sale with a discount is paid the TOTAL, not the subtotal', funct
   assert.ok(built.ok, built.message);
   var payment = built.changes.filter(function (c) { return c.table_name === 'payment_records'; })[0].payload;
   assert.deepStrictEqual([built.changes[0].payload.subtotalCents, built.changes[0].payload.totalCents, payment.amountCents, payment.referenceNote, payment.status, payment.method], [50100, 49000, 49000, 'AB12', 'paid', 'mpesa_manual']);
+});
+// ---- online (Paystack) sales: pending, then settled -----------------------------------------------------------
+function pendingOnline(s, cart, extra) {
+  var request = { cart: cart, paymentMethod: 'paystack', saleNumber: 'AAAAAA-20261105120000-ZZZZ' };
+  for (var k in extra) { request[k] = extra[k]; }
+  return sell(s, request);
+}
+function settleIt(built, outcome, nextRev, nowMs) {
+  return Sale.settle({ original: built.changes, outcome: outcome, deviceId: DEVICE_ID, now: function () { return nowMs === undefined ? NOW + 60000 : nowMs; }, nextRev: nextRev || built.nextRev, randomHex: randomHex });
+}
+function compareStage(scenarioName, stageIndex, builtChanges) {
+  var expected = scenarios[scenarioName].stages[stageIndex].changes;
+  assert.strictEqual(builtChanges.length, expected.length, scenarioName + ' stage ' + (stageIndex + 1) + ': number of records');
+  for (var i = 0; i < expected.length; i++) {
+    assert.deepStrictEqual(sorted(mask(builtChanges[i])), sorted(mask(expected[i])), scenarioName + ' stage ' + (stageIndex + 1) + ': record #' + (i + 1) + ' (' + expected[i].table_name + ') differs from what the app writes');
+  }
+}
+
+test('a pending Paystack sale = what the app records when it starts an online payment', function () {
+  var s = scenarios.paystack_pending_then_paid;
+  var pending = pendingOnline(s, [{ productId: productNamed(s, 'Widget').id, name: 'Widget', unitPriceCents: 10000, quantity: 1 }, { productId: productNamed(s, 'Gadget').id, name: 'Gadget', unitPriceCents: 25050, quantity: 1 }]);
+  assert.ok(pending.ok, pending.message);
+  compareStage('paystack_pending_then_paid', 0, pending.changes);
+  assert.strictEqual(pending.changes[0].payload.saleNumber, 'AAAAAA-20261105120000-ZZZZ', 'the sale number is the payment reference');
+  assert.strictEqual(pending.receipt.online, true);
+  assert.strictEqual(pending.receipt.amountToPayCents, 35050);
+});
+
+test('settling as paid = what the app records when Paystack confirms', function () {
+  var s = scenarios.paystack_pending_then_paid;
+  var pending = pendingOnline(s, [{ productId: productNamed(s, 'Widget').id, name: 'Widget', unitPriceCents: 10000, quantity: 1 }, { productId: productNamed(s, 'Gadget').id, name: 'Gadget', unitPriceCents: 25050, quantity: 1 }]);
+  var settled = settleIt(pending, 'paid');
+  assert.ok(settled.ok, settled.message);
+  compareStage('paystack_pending_then_paid', 1, settled.changes);
+  // The SAME sale and payment rows, updated (not new ones), later than before, with the next revisions.
+  assert.strictEqual(settled.changes[0].row_id, pending.changes[0].row_id);
+  assert.strictEqual(settled.changes[1].row_id, pending.changes[pending.changes.length - 1].row_id);
+  assert.ok(settled.changes[0].payload.updatedAt > pending.changes[0].payload.updatedAt);
+  assert.strictEqual(settled.changes[0].payload.createdAt, pending.changes[0].payload.createdAt, 'createdAt never changes');
+  assert.deepStrictEqual(settled.changes.map(function (c) { return c.local_rev; }), [pending.nextRev, pending.nextRev + 1]);
+  assert.strictEqual(settled.nextRev, pending.nextRev + 2);
+});
+
+test('settling as cancelled = what the app records when an online payment is abandoned (stock returned)', function () {
+  var s = scenarios.paystack_pending_then_cancelled;
+  var pending = pendingOnline(s, [{ productId: productNamed(s, 'Widget').id, name: 'Widget', unitPriceCents: 10000, quantity: 2 }], { saleNumber: 'BBBBBB-20261105130000-YYYY' });
+  assert.ok(pending.ok, pending.message);
+  compareStage('paystack_pending_then_cancelled', 0, pending.changes);
+  var cancelled = settleIt(pending, 'cancelled');
+  assert.ok(cancelled.ok, cancelled.message);
+  compareStage('paystack_pending_then_cancelled', 1, cancelled.changes);
+  assert.deepStrictEqual(cancelled.changes.map(function (c) { return c.table_name; }), ['stock_movements', 'sales', 'payment_records']);
+  assert.strictEqual(cancelled.changes[0].payload.quantity, 2);
+  assert.strictEqual(cancelled.changes[0].payload.userId, null);
+});
+
+test('a cancelled online sale returns exactly what each product line took', function () {
+  var s = scenarios.paystack_pending_then_paid;
+  var w = productNamed(s, 'Widget').id, g = productNamed(s, 'Gadget').id;
+  var pending = pendingOnline(s, [{ productId: w, name: 'Widget', unitPriceCents: 10000, quantity: 3 }, { productId: g, name: 'Gadget', unitPriceCents: 25050, quantity: 2 }, { productId: null, name: 'Delivery', unitPriceCents: 500, quantity: 1 }]);
+  var cancelled = settleIt(pending, 'cancelled');
+  var returns = {};
+  cancelled.changes.filter(function (c) { return c.table_name === 'stock_movements'; }).forEach(function (c) { returns[c.payload.productId] = (returns[c.payload.productId] || 0) + c.payload.quantity; });
+  var took = {};
+  pending.changes.filter(function (c) { return c.table_name === 'stock_movements'; }).forEach(function (c) { took[c.payload.productId] = (took[c.payload.productId] || 0) - c.payload.quantity; });
+  assert.deepStrictEqual(returns, took);
+  assert.deepStrictEqual(Object.keys(returns).sort(), [w, g].sort(), 'a manual line has no stock to return');
+});
+
+test('an update is always strictly later than the version it replaces, even if the clock has not moved', function () {
+  var s = scenarios.paystack_pending_then_paid;
+  var pending = pendingOnline(s, [{ productId: productNamed(s, 'Widget').id, name: 'Widget', unitPriceCents: 10000, quantity: 1 }]);
+  var sameClock = settleIt(pending, 'paid', undefined, NOW);
+  assert.ok(sameClock.changes[0].payload.updatedAt > pending.changes[0].payload.updatedAt, sameClock.changes[0].payload.updatedAt + ' vs ' + pending.changes[0].payload.updatedAt);
+  var clockBehind = settleIt(pending, 'paid', undefined, NOW - 86400000);
+  assert.ok(clockBehind.changes[0].payload.updatedAt > pending.changes[0].payload.updatedAt, 'even an iPad clock set back must not make the update look older');
+});
+
+test('only a pending online sale can be settled, and only as paid or cancelled', function () {
+  var s = scenarios.paystack_pending_then_paid;
+  var w = productNamed(s, 'Widget').id;
+  var cash = sell(s, { cart: [{ productId: w, name: 'Widget', unitPriceCents: 10000, quantity: 1 }] });
+  assert.strictEqual(settleIt(cash, 'paid').ok, false);
+  var pending = pendingOnline(s, [{ productId: w, name: 'Widget', unitPriceCents: 10000, quantity: 1 }]);
+  assert.strictEqual(settleIt(pending, 'refunded').ok, false);
+  var paid = settleIt(pending, 'paid');
+  assert.ok(paid.ok);
+  // The settled records (a paid sale) cannot be settled again.
+  assert.strictEqual(Sale.settle({ original: paid.changes, outcome: 'paid', deviceId: DEVICE_ID, now: function () { return NOW; }, nextRev: 99, randomHex: randomHex }).ok, false);
+});
+
+test('an online sale needs a valid sale number, a total to charge, and never takes cash', function () {
+  var s = scenarios.paystack_pending_then_paid;
+  var w = productNamed(s, 'Widget').id;
+  var cart = [{ productId: w, name: 'Widget', unitPriceCents: 10000, quantity: 1 }];
+  assert.strictEqual(sell(s, { cart: cart, paymentMethod: 'paystack', saleNumber: 'not a number' }).ok, false);
+  assert.strictEqual(sell(s, { cart: cart, paymentMethod: 'paystack', discountCents: 99999 }).ok, false, 'nothing to charge');
+  var online = sell(s, { cart: cart, paymentMethod: 'paystack', cashReceivedCents: 5000, customerPhone: '0712345678' });
+  assert.ok(online.ok);
+  assert.strictEqual(online.changes[0].payload.cashReceivedCents, null);
+  assert.strictEqual(online.changes[0].payload.customerPhone, '0712345678', 'the phone is kept, as the app does for an online sale');
+  assert.ok(/^[0-9A-Z]{6}-\d{14}-[0-9A-Z]{4}$/.test(online.changes[0].payload.saleNumber), 'a number is made when none is given');
 });
 test('wholesale pricing: the wholesale price when set, else retail', function () {
   assert.strictEqual(Sale.priceFor({ retailPriceCents: 10000, wholesalePriceCents: 8000 }, 'wholesale'), 8000);

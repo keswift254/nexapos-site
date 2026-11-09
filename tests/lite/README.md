@@ -16,3 +16,15 @@ in the release workspace for the whole plan. These are the checks that keep it s
 
 To run the integration test locally you need the platform repo's PHP server on a fresh MySQL database
 (see the platform repo's `tests/integration/run.php` for the environment variables).
+
+## Online (Paystack) payments
+
+| Command | What it proves |
+|---|---|
+| `node tests/lite/online.test.js` | Paystack is asked first; the pending sale reserves stock; a payment is settled as paid only when Paystack says `success` for the right amount and currency; cancelling does one last check and needs the internet; settles queue behind their sale; a settle already done elsewhere is not a refusal (33 tests, mutation-checked) |
+| `LITE_API=... LITE_FAKE_PAYSTACK=http://127.0.0.1:18090 LITE_MYSQL=<mysql client> LITE_DB_NAME=<db> node tests/lite/online-integration.js` | the same flow against a REAL platform server and a pretend Paystack (platform repo `tests/integration/fake_paystack_lite.php`): initialise with the shop's payout account, own email and the Lite return page; guard accepts the pending sale and its settle; abandon/cancel; wrong amount refused by the platform; only the starting device can verify; no payout account refused; tampered settle refused |
+
+Start the platform with `PLATFORM_PAYSTACK_API_BASE=http://127.0.0.1:18090`, `PLATFORM_PAYSTACK_SECRET_KEY=test-only`,
+`NEXAPOS_IGNORE_LOCAL_CONFIG=1` and a database name that does **not** exist yet (the server creates and migrates it).
+
+`lite/qrcode.js` is qrcode-generator 1.4.4 (MIT, Kazuhiko Arase), plain ES3/ES5.
