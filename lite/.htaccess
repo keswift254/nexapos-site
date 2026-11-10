@@ -1,10 +1,7 @@
 # NexaPOS Lite till: the page and its scripts are checked again on every visit (a cheap "not modified" answer when
 # nothing changed). Without this the server let an iPad keep an OLD copy of the page for hours and of the scripts for
 # a week, so a cashier could be using a till that was missing the newest features.
-# Wrapped so that a server without the headers module simply ignores it instead of failing the whole folder.
-<IfModule mod_headers.c>
-  <FilesMatch "\.(html|js|css)$">
-    Header unset Expires
-    Header set Cache-Control "no-cache, must-revalidate"
-  </FilesMatch>
-</IfModule>
+# Same form as the rule already working in ../app/.htaccess on this host.
+<FilesMatch "\.(html|js|css)$">
+Header set Cache-Control "no-cache, must-revalidate"
+</FilesMatch>
