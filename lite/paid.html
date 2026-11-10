@@ -17,15 +17,35 @@
 </head>
 <body>
   <div class="page">
-    <h1>Thank you</h1>
-    <p>Your payment is being confirmed. You can close this page now.</p>
+    <h1 id="title">Thank you</h1>
+    <p id="message">Your payment is being confirmed. You can close this page now.</p>
     <p class="small">Shop staff: <a href="/lite/">back to the till</a></p>
   </div>
-  <!--
-    Where the customer's browser lands after the Paystack payment page (the platform tells Paystack to come here
-    for payments started from the Lite till). Nothing on the address is read or trusted: Paystack adds ?trxref=
-    and ?reference=, and the till asks the shop's server whether the sale was paid. Plain on purpose - it may open
-    on the customer's own phone, or on the old iPad itself.
-  -->
+  <script>
+    // Where the customer's browser lands after the Paystack payment page (the platform tells Paystack to come here
+    // for payments started from the Lite till). Nothing on the address is read or trusted: Paystack adds ?trxref=
+    // and ?reference=, and the till asks the shop's server whether the sale was paid.
+    //
+    // Two kinds of visitor land here, told apart by a note the till leaves in THIS browser tab (sessionStorage, which
+    // a customer's own phone never has):
+    //  - the till itself, which sent this tab to Paystack to pay on the iPad: it is sent straight back to the till,
+    //    which checks the payment and shows the receipt;
+    //  - a customer who paid on their own phone (scanned the code): they just see the thank-you above.
+    // Plain ES5 on purpose (old iPads).
+    (function () {
+      var cameFromTill = false;
+      try {
+        var raw = window.sessionStorage.getItem('nexapos-lite-return');
+        var note = raw ? JSON.parse(raw) : null;
+        cameFromTill = !!(note && note.saleId && (new Date().getTime() - note.when) < 6 * 60 * 60 * 1000);
+      } catch (e) {
+        cameFromTill = false;
+      }
+      if (cameFromTill) {
+        document.getElementById('message').firstChild.nodeValue = 'Back to the till...';
+        window.setTimeout(function () { window.location.replace('/lite/?back=1'); }, 250);
+      }
+    }());
+  </script>
 </body>
 </html>

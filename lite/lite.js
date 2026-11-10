@@ -83,6 +83,12 @@
   var ui = { tab: 'sell', cart: [], saleType: 'retail', payment: 'cash', receiptId: null, lastSyncProblem: '', syncing: false, payingId: null, payTimer: null, starting: false };
   var PAY_POLL_MS = 3000;
   var BACKGROUND_PAY_CHECK_MS = 15 * 1000;
+  // Paying on the iPad itself leaves this page for Paystack and comes back to it (a fresh page load, so the login is
+  // gone). This note, kept for this browser tab only, says which cashier was paying for which sale, so the till can
+  // pick up exactly where it left off. It expires, and lite/paid.html reads it to know it should send the tab back here.
+  var RETURN_KEY = 'nexapos-lite-return';
+  var RETURN_VALID_MS = 30 * 60 * 1000;
+  ui.payMode = 'ipad';
 
   function methodLabel(method) {
     return method === 'cash' ? 'Cash' : (method === 'paystack' ? 'Online (Paystack)' : 'M-Pesa');
@@ -556,9 +562,60 @@
       }
       resetSale();
       renderAll();
+      if (ui.payMode === 'ipad') {
+        // Like the apps: straight to the payment page, and back here with the receipt when it is paid.
+        goToPaymentPage(started.receipt.saleId);
+        return;
+      }
       openPayScreen(started.receipt.saleId);
       sendWaitingSales();
     });
+  }
+
+  // ---- paying on this iPad: away to Paystack and back --------------------------------------------------------
+  function writeReturnToken(saleId) {
+    var user = core.currentUser();
+    try {
+      window.sessionStorage.setItem(RETURN_KEY, JSON.stringify({ saleId: saleId, userId: user ? user.id : null, when: new Date().getTime() }));
+      return true;
+    } catch (e) {
+      return false; // private browsing: still goes, but the cashier will have to log in again on the way back
+    }
+  }
+
+  function readReturnToken() {
+    try {
+      var raw = window.sessionStorage.getItem(RETURN_KEY);
+      if (!raw) { return null; }
+      var token = JSON.parse(raw);
+      if (token && token.saleId && token.userId && (new Date().getTime() - token.when) < RETURN_VALID_MS) { return token; }
+    } catch (e) {
+      // unreadable: treated as none
+    }
+    clearReturnToken();
+    return null;
+  }
+
+  function clearReturnToken() {
+    try { window.sessionStorage.removeItem(RETURN_KEY); } catch (e) { /* nothing to clear */ }
+  }
+
+  /** Leaves the till for the Paystack payment page (the sale is already saved as waiting on this iPad). */
+  function goToPaymentPage(saleId) {
+    var item = findWaiting(saleId);
+    if (!item) { return; }
+    writeReturnToken(saleId);
+    say('sell-message', 'warn', 'Opening the payment page...');
+    window.location.href = item.authorizationUrl;
+  }
+
+  /** Back from Paystack (or from pressing Back there): show where that payment stands, and the receipt if it is paid. */
+  function resumePayment(saleId) {
+    ui.tab = 'sell';
+    showTab('sell');
+    openPayScreen(saleId);
+    say('pay-status', 'warn', 'Checking the payment...');
+    payPoll(false);
   }
 
   function stopPayPoll() {
@@ -573,6 +630,7 @@
 
   function closePayScreen() {
     stopPayPoll();
+    clearReturnToken();
     ui.payingId = null;
     show('pay-screen', false);
     show('receipt-box', false);
@@ -614,6 +672,7 @@
   function paidNow(saleId) {
     var entry = historyFor(saleId);
     stopPayPoll();
+    clearReturnToken();
     ui.payingId = null;
     show('pay-screen', false);
     renderAll();
@@ -668,13 +727,22 @@
   el('pay-check').onclick = function () { payPoll(true); };
   el('pay-cancel').onclick = function () { if (ui.payingId) { cancelPayment(ui.payingId, 'pay-status'); } };
   el('pay-later').onclick = function () { closePayScreen(); renderAll(); };
+  // "Pay on this iPad instead" (from the code screen, or to try again): straight to the payment page; the till
+  // comes back by itself when it is done.
   el('pay-open').onclick = function () {
-    var item = ui.payingId ? findWaiting(ui.payingId) : null;
-    if (!item) { return; }
-    if (window.confirm('Open the payment page on this iPad? The till is left for now; the sale stays waiting and is checked when you come back to it.')) {
-      window.location.href = item.authorizationUrl;
-    }
+    if (ui.payingId && findWaiting(ui.payingId)) { goToPaymentPage(ui.payingId); }
   };
+
+  function setPayMode(mode) {
+    ui.payMode = mode;
+    el('paymode-here').className = mode === 'ipad' ? 'on' : '';
+    el('paymode-qr').className = mode === 'qr' ? 'on' : '';
+    setText('paymode-help', mode === 'ipad'
+      ? 'The payment page opens on this iPad by itself, the customer pays there, and the till comes back with the receipt. Needs the internet.'
+      : 'A code appears on the screen. The customer scans it with their own phone and pays there; this screen updates by itself. Needs the internet.');
+  }
+  el('paymode-here').onclick = function () { setPayMode('ipad'); };
+  el('paymode-qr').onclick = function () { setPayMode('qr'); };
 
   function renderNotices() {
     var box = el('till-notices');
@@ -887,6 +955,7 @@
     core.logout();
     ui.cart = [];
     ui.receiptId = null;
+    clearReturnToken();
     stopPayPoll();
     ui.payingId = null;
     show('pay-screen', false);
@@ -924,7 +993,19 @@
   window.setInterval(checkWaitingPayments, BACKGROUND_PAY_CHECK_MS);
 
   // ---- start -------------------------------------------------------------------------------------------------
+  // Coming back from paying on this iPad: the cashier who was paying gets their login back (for that one waiting
+  // payment only) BEFORE the first screen is chosen, so they land on the payment, not on the login screen.
+  var resumeSaleId = null;
+  (function () {
+    var token = readReturnToken();
+    if (!token) { return; }
+    if (core.restoreSession(token.userId, token.saleId)) { resumeSaleId = token.saleId; } else { clearReturnToken(); }
+  }());
   route();
+  if (resumeSaleId) {
+    resumePayment(resumeSaleId);
+    armIdleTimer();
+  }
   if (core.getStatus().joined) {
     doSync(false);
     checkWaitingPayments();

@@ -17,6 +17,7 @@ var fixtures = require('./fixtures/bcrypt_fixtures.json').cases;
 var BASE = 'https://sync.test/index.php';
 var NOW = Date.UTC(2026, 10, 8, 10, 0, 0);
 var CASHIER = '44444444-4444-4444-8444-444444444444';
+var OWNER = '33333333-3333-4333-8333-333333333333';
 var SODA = '11111111-1111-4111-8111-111111111111';
 var BREAD = '22222222-2222-4222-8222-222222222222';
 var REFERENCE = /^[0-9A-Z]{6}-\d{14}-[0-9A-Z]{4}$/;
@@ -60,7 +61,8 @@ function catalogBody() {
       { id: BREAD, sku: 'S2', name: 'Bread', barcode: null, categoryId: 'c1', retailPriceCents: 7500, wholesalePriceCents: 0, costPriceCents: 6000, reorderLevel: 1, status: 'active', stockQty: 3 }
     ],
     users: [
-      { id: CASHIER, roleId: '00000000-0000-4000-8000-000000000003', name: 'Cashier', username: 'cash', passwordHash: fixtures[0].hash, status: 'active' }
+      { id: CASHIER, roleId: '00000000-0000-4000-8000-000000000003', name: 'Cashier', username: 'cash', passwordHash: fixtures[0].hash, status: 'active' },
+      { id: OWNER, roleId: '00000000-0000-4000-8000-000000000001', name: 'Owner', username: 'owner', passwordHash: fixtures[0].hash, status: 'active' }
     ],
     roles: []
   };
@@ -796,6 +798,77 @@ test('no internet while sending: the sale and its settle wait, and go in order l
 });
 
 // ---- notices ------------------------------------------------------------------------------------------------------------
+// ---- handing the login back after the trip to Paystack and back ---------------------------------------------------
+function reloaded(t) { return newCore(t.storage, t.http, t.clock); }
+function editSaved(t, change) { var state = savedState(t); change(state); t.storage.data['nexapos-lite-v1'] = JSON.stringify(state); }
+
+test('after the page was reloaded, the cashier who started a waiting payment gets their login back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result) {
+      var again = reloaded(t);
+      assert.strictEqual(again.currentUser(), null, 'a reload logs everyone out');
+      var callsBefore = t.calls.length;
+      var session = again.restoreSession(CASHIER, result.receipt.saleId);
+      assert.ok(session);
+      assert.strictEqual(session.id, CASHIER);
+      assert.strictEqual(session.name, 'Cashier');
+      assert.strictEqual(session.username, 'cash');
+      assert.strictEqual(again.currentUser().id, CASHIER);
+      assert.strictEqual(again.sellBlockedReason(), null, 'and can carry on selling');
+      assert.strictEqual(t.calls.length, callsBefore, 'nothing is sent anywhere to do it');
+      done();
+    });
+  });
+});
+
+test('nobody else, and nothing else, gets a login handed back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result) {
+      var saleId = result.receipt.saleId;
+      var again = reloaded(t);
+      assert.strictEqual(again.restoreSession('99999999-9999-4999-8999-999999999999', saleId), null, 'a different person');
+      assert.strictEqual(again.restoreSession(OWNER, saleId), null, 'another real, active person - even the owner - cannot take over a cashier\'s payment');
+      assert.strictEqual(again.restoreSession(CASHIER, 'no-such-sale'), null, 'a payment that does not exist');
+      assert.strictEqual(again.restoreSession(CASHIER, ''), null);
+      assert.strictEqual(again.restoreSession('', saleId), null);
+      assert.strictEqual(again.restoreSession(null, saleId), null);
+      assert.strictEqual(again.currentUser(), null, 'still logged out after every refusal');
+      done();
+    });
+  });
+});
+
+test('a payment that is already settled hands nothing back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'success' };
+      t.core.checkOnline(function () {
+        var again = reloaded(t);
+        assert.strictEqual(again.restoreSession(CASHIER, result.receipt.saleId), null);
+        assert.strictEqual(again.currentUser(), null);
+        done();
+      });
+    });
+  });
+});
+
+test('a cashier who has been switched off, or a till that was disconnected, gets nothing back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result) {
+      var saleId = result.receipt.saleId;
+      editSaved(t, function (state) { state.catalog.users[0].status = 'disabled'; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'switched off');
+      editSaved(t, function (state) { state.catalog.users[0].status = 'active'; state.revoked = true; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'this iPad was cut off by the owner');
+      editSaved(t, function (state) { state.revoked = false; state.joined = false; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'not connected to a shop');
+      editSaved(t, function (state) { state.joined = true; state.catalog = null; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'no shop data');
+      done();
+    });
+  });
+});
+
 test('notices can be dismissed one by one, and only the latest 20 are kept', function (done) {
   till()(function (t) {
     var n = 0;

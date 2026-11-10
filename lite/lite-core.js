@@ -344,6 +344,45 @@
       session = null;
     }
 
+    /**
+     * Paying on the iPad itself takes the page away to Paystack and back, which reloads the till and so logs the
+     * cashier out. This gives the login back, and ONLY for the cashier who started a payment that is still waiting
+     * (a payment started by someone else, an unknown or already settled one, or a cashier who has since been
+     * switched off gets nothing). The page decides how long such a hand-back stays valid.
+     */
+    function restoreSession(userId, saleId) {
+      if (!state.joined || !state.catalog || state.revoked) {
+        return null;
+      }
+      var item = findOnline(saleId);
+      if (!item) {
+        return null;
+      }
+      var saleUser = null;
+      for (var i = 0; i < item.original.length; i++) {
+        if (item.original[i].table_name === 'sales') {
+          saleUser = item.original[i].payload.userId;
+        }
+      }
+      if (!userId || saleUser !== userId) {
+        return null;
+      }
+      var users = state.catalog.users;
+      for (var u = 0; u < users.length; u++) {
+        if (users[u].id === userId && users[u].status === 'active') {
+          session = {
+            id: users[u].id,
+            name: users[u].name,
+            username: users[u].username,
+            roleId: users[u].roleId,
+            roleName: ROLE_NAMES[users[u].roleId] || 'Staff'
+          };
+          return session;
+        }
+      }
+      return null;
+    }
+
     // ---- reading the catalog -----------------------------------------------------------------------------
     function searchProducts(query, categoryId, includeInactive) {
       var catalog = state.catalog;
@@ -927,6 +966,7 @@
       refresh: refresh,
       login: login,
       logout: logout,
+      restoreSession: restoreSession,
       currentUser: function () { return session; },
       searchProducts: searchProducts,
       categoryName: categoryName,

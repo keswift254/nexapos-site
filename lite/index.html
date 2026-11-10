@@ -177,9 +177,13 @@
               <p class="muted">Only choose this after the money has arrived on the till's M-Pesa. NexaPOS Lite does not send M-Pesa requests.</p>
             </div>
             <div id="pay-paystack-box" class="hidden">
+              <div class="seg" id="paymode-seg">
+                <button type="button" id="paymode-here" class="on">Customer pays on this iPad</button>
+                <button type="button" id="paymode-qr">Customer scans a code with their phone</button>
+              </div>
               <label for="paystack-phone">Customer phone (optional)</label>
               <input id="paystack-phone" type="text" inputmode="tel" autocomplete="off">
-              <p class="muted">The customer pays on their own phone by scanning a code, so this needs the internet. The sale is kept as waiting until the payment arrives.</p>
+              <p class="muted" id="paymode-help">The payment page opens on this iPad by itself, the customer pays there, and the till comes back with the receipt. Needs the internet.</p>
             </div>
             <table class="totals" style="margin-top:12px"><tbody id="totals"></tbody></table>
             <div id="sell-message"></div>
@@ -225,7 +229,7 @@
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=3"></script>
-  <script src="lite.js?v=3"></script>
+  <script src="lite-core.js?v=4"></script>
+  <script src="lite.js?v=4"></script>
 </body>
 </html>
