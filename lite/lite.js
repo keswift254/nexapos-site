@@ -149,6 +149,9 @@
     if (status.onlineWaiting > 0 && containerId === 'login-sales') {
       box.appendChild(make('div', 'notice warn', status.onlineWaiting + (status.onlineWaiting === 1 ? ' online payment is' : ' online payments are') + ' waiting for the customer to pay. Log in to see ' + (status.onlineWaiting === 1 ? 'it' : 'them') + '.'));
     }
+    if (status.heldSales > 0 && containerId === 'login-sales') {
+      box.appendChild(make('div', 'notice warn', status.heldSales + (status.heldSales === 1 ? ' sale is' : ' sales are') + ' on hold on this iPad. Log in to open ' + (status.heldSales === 1 ? 'it' : 'them') + '.'));
+    }
     if (status.pendingSales > 0) {
       var warn =make('div', 'notice warn', status.pendingSales + (status.pendingSales === 1 ? ' sale is' : ' sales are') + ' saved on this iPad and waiting to be sent to the shop. ' + (ui.lastSyncProblem ? ui.lastSyncProblem + ' ' : ''));
       var send = make('button', 'small secondary', 'Send now');
@@ -196,6 +199,7 @@
     renderOnline();
     renderPicker();
     renderCart();
+    renderHeld();
     fillCategories();
     renderProducts();
     renderSales();
@@ -320,7 +324,9 @@
     ui.view = name;
     show('view-pick', name === 'pick');
     show('view-cart', name === 'cart');
+    show('view-held', name === 'held');
     if (name === 'cart') { renderCart(); }
+    if (name === 'held') { renderHeld(); }
   }
   el('view-cart-button').onclick = function () { showView('cart'); };
   el('back-to-products').onclick = function () { showView('pick'); };
@@ -394,6 +400,7 @@
     var blocked = core.sellBlockedReason();
     el('complete-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk || ui.starting;
     el('show-qr-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk || ui.starting;
+    el('hold-button').disabled = ui.cart.length === 0 || ui.starting;
     if (blocked) { say('sell-message', 'bad', blocked); }
     else if (!t.discountOk) { say('sell-message', 'warn', 'The discount must be a number, like 50 or 50.50.'); }
   }
@@ -438,6 +445,156 @@
   el('clear-button').onclick = function () {
     if (ui.cart.length === 0 || window.confirm('Clear this whole sale?')) { resetSale(); }
   };
+
+  // ---- held sales: set a sale aside to serve someone else (like the app's Hold sale) -------------------------
+  /** Everything the screen has for the sale in progress, as the till code keeps it for a held sale. */
+  function currentDraft() {
+    return {
+      cart: ui.cart,
+      saleType: ui.saleType,
+      discount: el('discount').value,
+      payment: ui.payment,
+      phone: el('paystack-phone').value,
+      cashReceived: el('cash-received').value
+    };
+  }
+
+  /** What a held sale looks like now: item count, a short list of the items, and the total at today's prices. */
+  function heldSummary(held, map) {
+    var cart = held.draft.cart;
+    var count = 0;
+    var subtotal = 0;
+    var missing = false;
+    var names = [];
+    for (var i = 0; i < cart.length; i++) {
+      var unit = 0;
+      if (cart[i].productId === null) {
+        unit = cart[i].priceCents;
+      } else if (map[cart[i].productId]) {
+        unit = Sale.priceFor(map[cart[i].productId], held.draft.saleType);
+      } else {
+        missing = true;
+      }
+      count += cart[i].qty;
+      subtotal += unit * cart[i].qty;
+      names.push(cart[i].qty + ' \u00d7 ' + cart[i].name);
+    }
+    var typed = held.draft.discount.replace(/^\s+|\s+$/g, '');
+    var discount = typed === '' ? 0 : core.parseCents(typed);
+    if (discount === null) { discount = 0; }
+    if (discount > subtotal) { discount = subtotal; }
+    var list = names.join(', ');
+    if (list.length > 110) { list = list.slice(0, 107) + '...'; }
+    return { count: count, total: subtotal - discount, missing: missing, list: list };
+  }
+
+  function renderHeld() {
+    var list = core.heldList();
+    var buttons = ['held-button-pick', 'held-button-cart'];
+    for (var b = 0; b < buttons.length; b++) {
+      show(buttons[b], list.length > 0);
+      if (list.length > 0) { setText(buttons[b], 'Held sales (' + list.length + ')'); }
+    }
+    if (ui.view !== 'held') { return; }
+    var box = el('held-list');
+    box.innerHTML = '';
+    show('held-empty', list.length === 0);
+    var map = catalogMap();
+    for (var i = 0; i < list.length; i++) {
+      (function (held) {
+        var info = heldSummary(held, map);
+        var card = make('div', 'card');
+        card.appendChild(make('div', 'heldname', held.label));
+        card.appendChild(make('div', 'muted', 'Held by ' + held.heldBy + ' \u00b7 ' + timeText(held.heldAt)));
+        card.appendChild(make('div', 'heldlist', info.list));
+        card.appendChild(make('div', 'muted', info.count + (info.count === 1 ? ' item' : ' items') + ' \u00b7 ' + core.formatCents(info.total) + ' at today\'s prices'));
+        if (info.missing) { card.appendChild(make('div', 'notice warn', 'Some of these items are no longer in the shop\'s list. They will be left out when you open it.')); }
+        var open = make('button', 'small', 'Open');
+        open.type = 'button';
+        open.onclick = function () { openHeld(held); };
+        var drop = make('button', 'small secondary', 'Throw away');
+        drop.type = 'button';
+        drop.style.marginTop = '10px';
+        open.style.marginTop = '10px';
+        drop.onclick = function () { throwAwayHeld(held); };
+        card.appendChild(open);
+        card.appendChild(drop);
+        box.appendChild(card);
+      }(list[i]));
+    }
+  }
+
+  function showHeld() {
+    ui.heldFrom = ui.view === 'cart' ? 'cart' : 'pick';
+    say('held-message', '', '');
+    showView('held');
+  }
+  el('held-button-pick').onclick = showHeld;
+  el('held-button-cart').onclick = showHeld;
+  el('held-back').onclick = function () { showView(ui.heldFrom === 'cart' && ui.cart.length > 0 ? 'cart' : 'pick'); };
+
+  el('hold-button').onclick = function () {
+    if (ui.cart.length === 0 || ui.starting) { return; }
+    var name = window.prompt('Name this held sale so you can find it again, for example the customer. You can leave this empty.', '');
+    if (name === null) { return; }
+    var result = core.holdSale(name, currentDraft());
+    if (!result.ok) { say('sell-message', 'bad', result.message); return; }
+    resetSale();
+    renderHeld();
+    say('pick-message', 'ok', '"' + result.held.label + '" is on hold. Open it again from Held sales.');
+  };
+
+  /** Puts a held sale back on the screen. Items that are gone from the shop's list, or sold out, are left out and the cashier is told. */
+  function restoreDraft(draft) {
+    var map = catalogMap();
+    var cart = [];
+    var left = [];
+    var cut = [];
+    for (var i = 0; i < draft.cart.length; i++) {
+      var line = draft.cart[i];
+      if (line.productId === null) {
+        cart.push({ productId: null, name: line.name, qty: line.qty, priceCents: line.priceCents });
+        continue;
+      }
+      var product = map[line.productId];
+      if (!product || product.stockQty < 1) { left.push(line.name); continue; }
+      var qty = Math.min(line.qty, product.stockQty);
+      if (qty < line.qty) { cut.push(line.name); }
+      cart.push({ productId: line.productId, name: line.name, qty: qty });
+    }
+    ui.cart = cart;
+    el('discount').value = draft.discount;
+    el('cash-received').value = draft.cashReceived;
+    el('paystack-phone').value = draft.phone;
+    setSaleType(draft.saleType);
+    setPayment(draft.payment);
+    renderAll();
+    showTab('sell');
+    showView('cart');
+    var notes = [];
+    if (left.length) { notes.push('Left out (not in the shop\'s list any more, or out of stock): ' + left.join(', ') + '.'); }
+    if (cut.length) { notes.push('Less in stock than before, so the quantity was lowered for: ' + cut.join(', ') + '.'); }
+    say('sell-message', notes.length ? 'warn' : '', notes.join(' '));
+  }
+
+  function openHeld(held) {
+    if (ui.cart.length > 0) {
+      // The sale in progress is put on hold first, so opening another one never loses it.
+      if (!window.confirm('You have a sale in progress. Put it on hold and open "' + held.label + '"?')) { return; }
+      var kept = core.holdSale('', currentDraft());
+      if (!kept.ok) { say('held-message', 'bad', kept.message); return; }
+    }
+    var opened = core.resumeHeld(held.id);
+    if (!opened.ok) { say('held-message', 'warn', opened.message); renderHeld(); return; }
+    restoreDraft(opened.held.draft);
+  }
+
+  function throwAwayHeld(held) {
+    if (!window.confirm('Throw away "' + held.label + '"? Nothing will be sold, and it cannot be brought back.')) { return; }
+    var result = core.discardHeld(held.id);
+    say('held-message', result.ok ? 'ok' : 'warn', result.ok ? '"' + held.label + '" was thrown away.' : result.message);
+    renderHeld();
+  }
 
   // ---- completing a sale -------------------------------------------------------------------------------------
   function buildCart(t) {
@@ -1072,8 +1229,10 @@
   el('till-refresh').onclick = function () { doSync(true, 'till-refresh', 'till-message'); };
 
   function leaveTill() {
+    // Logging out (or the idle timer) with a sale in progress puts it on hold instead of losing it.
+    if (core.currentUser() && ui.cart.length > 0) { core.holdSale('Unfinished sale', currentDraft()); }
+    resetSale();
     core.logout();
-    ui.cart = [];
     ui.receiptId = null;
     clearReturnToken();
     stopPayPoll();
@@ -1084,9 +1243,12 @@
   el('logout-button').onclick = leaveTill;
   el('forget-button').onclick = function () {
     var pending = core.getStatus().pendingSales + core.getStatus().rejectedSales;
+    var held = core.getStatus().heldSales;
     var warning = pending > 0
       ? 'This iPad still holds ' + pending + ' sale(s) that the shop has not recorded. Disconnecting will DELETE them. Are you sure?'
-      : 'Disconnect this iPad from the shop? You will need a new invite code to connect again.';
+      : (held > 0
+        ? 'This iPad has ' + held + ' held sale(s). Disconnecting will throw them away. Are you sure?'
+        : 'Disconnect this iPad from the shop? You will need a new invite code to connect again.');
     if (window.confirm(warning)) {
       core.forget();
       route();

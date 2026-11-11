@@ -104,7 +104,7 @@
 
     // ---- storage ----------------------------------------------------------------------------------------
     function blank() {
-      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [], online: [], notices: [] };
+      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [], online: [], notices: [], held: [] };
     }
 
     function load() {
@@ -118,6 +118,7 @@
             parsed.history = parsed.history || [];
             parsed.online = parsed.online || [];
             parsed.notices = parsed.notices || [];
+            parsed.held = parsed.held || [];
             return parsed;
           }
         }
@@ -838,6 +839,107 @@
       });
     }
 
+    // ---- held sales: a sale set aside to serve someone else first ------------------------------------------------
+    // Like the app's: kept only on this iPad (never sent to the shop), takes no stock and records no payment. It is a
+    // saved cart - exactly what the screen had (items, sale type, discount, payment choice, number, cash typed) - so it
+    // survives a reload and a log out, and is shown to whoever logs in next.
+    var MAX_HELD = 50;
+
+    /** The screen's cart, checked and trimmed to just what is kept; null when there is nothing sensible to hold. */
+    function cleanDraft(draft) {
+      if (!draft || typeof draft !== 'object' || !draft.cart || typeof draft.cart.length !== 'number' || draft.cart.length < 1 || draft.cart.length > 200) {
+        return null;
+      }
+      var cart = [];
+      for (var i = 0; i < draft.cart.length; i++) {
+        var line = draft.cart[i];
+        var qty = line ? Number(line.qty) : NaN;
+        if (!line || typeof line.name !== 'string' || line.name === '' || !(qty >= 1) || qty > 100000 || Math.floor(qty) !== qty) {
+          return null;
+        }
+        var productId = line.productId === null || line.productId === undefined ? null : String(line.productId);
+        var kept = { productId: productId, name: line.name.slice(0, 200), qty: qty };
+        if (productId === null) {
+          var price = Number(line.priceCents);
+          if (!(price >= 1) || Math.floor(price) !== price) {
+            return null;
+          }
+          kept.priceCents = price;
+        }
+        cart.push(kept);
+      }
+      return {
+        cart: cart,
+        saleType: draft.saleType === 'wholesale' ? 'wholesale' : 'retail',
+        discount: String(draft.discount || '').slice(0, 20),
+        payment: draft.payment === 'paystack' ? 'paystack' : 'cash',
+        phone: String(draft.phone || '').slice(0, 30),
+        cashReceived: String(draft.cashReceived || '').slice(0, 20)
+      };
+    }
+
+    function heldLabelUsed(label) {
+      for (var i = 0; i < state.held.length; i++) {
+        if (state.held[i].label === label) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /** Sets the screen's cart aside. label is optional ("Held sale 1", 2, 3... when empty). {ok, held} | {ok:false, message}. */
+    function holdSale(label, draft) {
+      if (!session) {
+        return { ok: false, message: 'Log in first.' };
+      }
+      var clean = cleanDraft(draft);
+      if (!clean) {
+        return { ok: false, message: 'There is nothing to hold.' };
+      }
+      if (state.held.length >= MAX_HELD) {
+        return { ok: false, message: 'Too many held sales. Finish or throw away some first.' };
+      }
+      var text = String(label || '').replace(/^\s+|\s+$/g, '').slice(0, 60);
+      if (!text) {
+        var n = 1;
+        while (heldLabelUsed('Held sale ' + n)) {
+          n += 1;
+        }
+        text = 'Held sale ' + n;
+      }
+      var held = { id: random(8), label: text, heldAt: now(), heldBy: session.name, draft: clean };
+      state.held.unshift(held);
+      save();
+      return { ok: true, held: held };
+    }
+
+    function heldList() {
+      return state.held.slice(0);
+    }
+
+    /** Takes a held sale back (it leaves the list): {ok, held} | {ok:false}. */
+    function resumeHeld(id) {
+      for (var i = 0; i < state.held.length; i++) {
+        if (state.held[i].id === id) {
+          var held = state.held.splice(i, 1)[0];
+          save();
+          return { ok: true, held: held };
+        }
+      }
+      return { ok: false, message: 'That held sale is not there any more.' };
+    }
+
+    function discardHeld(id) {
+      for (var i = 0; i < state.held.length; i++) {
+        if (state.held[i].id === id) {
+          state.held.splice(i, 1);
+          save();
+          return { ok: true };
+        }
+      }
+      return { ok: false, message: 'That held sale is not there any more.' };
+    }
+
     function onlineList() {
       var out = [];
       for (var i = 0; i < state.online.length; i++) {
@@ -1024,6 +1126,7 @@
         deviceLabel: state.device ? state.device.label : '',
         pendingSales: outboxSummary().pending,
         onlineWaiting: state.online.length,
+        heldSales: state.held.length,
         rejectedSales: outboxSummary().rejected.length,
         sellBlockedReason: sellBlock()
       };
@@ -1059,6 +1162,10 @@
       checkOnline: checkOnline,
       cancelOnline: cancelOnline,
       retryPrompt: retryPrompt,
+      holdSale: holdSale,
+      heldList: heldList,
+      resumeHeld: resumeHeld,
+      discardHeld: discardHeld,
       online: onlineList,
       notices: function () { return state.notices; },
       dismissNotice: dismissNotice,
