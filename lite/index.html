@@ -24,7 +24,7 @@
     .notice.bad { background: #fde8e8; color: #8a1c1c; }
     .notice.warn { background: #fff4d6; color: #6b4b00; }
     .notice.ok { background: #e3f6e8; color: #1c5a2e; }
-    .hidden { display: none; }
+    .hidden { display: none !important; }
     .topbar { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; }
     .tabs { display: -webkit-flex; display: flex; margin: 10px 0 0; border-bottom: 2px solid #dcdcec; }
     .tab { -webkit-flex: 1; flex: 1; text-align: center; padding: 12px 4px; font-size: 17px; font-weight: 700; color: #5a5a70; border-bottom: 4px solid transparent; margin-bottom: -2px; }
@@ -117,7 +117,7 @@
         <div id="receipt-box" class="hidden"></div>
         <div id="pay-screen" class="hidden">
           <div class="card paycard">
-            <h2>Waiting for the customer to pay</h2>
+            <h2 id="pay-title">Waiting for the customer to pay</h2>
             <div class="big" id="pay-amount"></div>
             <div class="muted" id="pay-number"></div>
             <img id="pay-qr" class="qr hidden" alt="Payment code">
@@ -132,59 +132,62 @@
           </div>
         </div>
         <div id="sell-form">
-          <div class="card">
-            <input id="sell-search" type="text" placeholder="Find a product: name, code or barcode" autocapitalize="none" autocorrect="off" autocomplete="off">
-            <table style="margin-top:8px"><tbody id="sell-picker"></tbody></table>
-            <p class="muted" id="sell-picker-note"></p>
+          <!-- Step 1, like the app's New Sale screen: pick products -->
+          <div id="view-pick">
+            <div class="card">
+              <input id="sell-search" type="text" placeholder="Search products, or scan a barcode..." autocapitalize="none" autocorrect="off" autocomplete="off">
+            </div>
+            <div class="card">
+              <table><tbody id="sell-picker"></tbody></table>
+              <p class="muted" id="sell-picker-note"></p>
+            </div>
+            <div id="pick-message"></div>
+            <button id="view-cart-button" class="big" type="button">View cart</button>
           </div>
-          <div class="card">
-            <h2>This sale</h2>
-            <div id="cart-empty" class="muted">Nothing added yet. Tap a product above.</div>
-            <table><tbody id="cart-lines"></tbody></table>
-            <div class="seg" id="type-seg">
-              <button type="button" id="type-retail" class="on">Retail</button>
-              <button type="button" id="type-wholesale">Wholesale</button>
+
+          <!-- Step 2, like the app's Cart & Checkout screen -->
+          <div id="view-cart" class="hidden">
+            <button id="back-to-products" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Add more items</button>
+            <div class="card">
+              <div id="cart-empty" class="muted">Your cart is empty.</div>
+              <table><tbody id="cart-lines"></tbody></table>
+              <details style="margin-top:10px"><summary class="muted">Add an item that is not in the list</summary>
+                <div class="row2">
+                  <div><label for="manual-name">Item</label><input id="manual-name" type="text" autocomplete="off"></div>
+                  <div><label for="manual-price">Price</label><input id="manual-price" type="text" inputmode="decimal" autocomplete="off"></div>
+                  <div><label for="manual-qty">Qty</label><input id="manual-qty" type="text" inputmode="numeric" value="1" autocomplete="off"></div>
+                </div>
+                <button id="manual-add" class="secondary small" type="button" style="margin-top:8px">Add item</button>
+              </details>
             </div>
-            <div class="row2">
-              <div><label for="discount">Discount (amount)</label><input id="discount" type="text" inputmode="decimal" placeholder="0" autocomplete="off"></div>
-              <div><label for="customer">Customer (optional)</label><input id="customer" type="text" autocomplete="off"></div>
-            </div>
-            <details style="margin-top:10px"><summary class="muted">Add an item that is not in the list</summary>
-              <div class="row2">
-                <div><label for="manual-name">Item</label><input id="manual-name" type="text" autocomplete="off"></div>
-                <div><label for="manual-price">Price</label><input id="manual-price" type="text" inputmode="decimal" autocomplete="off"></div>
-                <div><label for="manual-qty">Qty</label><input id="manual-qty" type="text" inputmode="numeric" value="1" autocomplete="off"></div>
+            <div class="card">
+              <h2>Sale type</h2>
+              <div class="seg" id="type-seg">
+                <button type="button" id="type-retail" class="on">Retail</button>
+                <button type="button" id="type-wholesale">Wholesale</button>
               </div>
-              <button id="manual-add" class="secondary small" type="button" style="margin-top:8px">Add item</button>
-            </details>
-          </div>
-          <div class="card">
-            <h2>Payment</h2>
-            <div class="seg" id="pay-seg">
-              <button type="button" id="pay-cash" class="on">Cash</button>
-              <button type="button" id="pay-mpesa">M-Pesa (already received)</button>
-              <button type="button" id="pay-paystack">Online (Paystack)</button>
-            </div>
-            <div id="pay-cash-box">
-              <label for="cash-received">Cash received</label>
-              <input id="cash-received" type="text" inputmode="decimal" placeholder="Optional" autocomplete="off">
-            </div>
-            <div id="pay-mpesa-box" class="hidden">
-              <div class="row2">
-                <div><label for="mpesa-phone">Customer phone (optional)</label><input id="mpesa-phone" type="text" inputmode="tel" autocomplete="off"></div>
-                <div><label for="mpesa-ref">M-Pesa code (optional)</label><input id="mpesa-ref" type="text" autocapitalize="characters" autocorrect="off" autocomplete="off"></div>
+              <h2 style="margin-top:14px">Payment method</h2>
+              <div class="seg" id="pay-seg">
+                <button type="button" id="pay-cash" class="on">Cash</button>
+                <button type="button" id="pay-paystack">M-Pesa Prompt</button>
               </div>
-              <p class="muted">Only choose this after the money has arrived on the till's M-Pesa. NexaPOS Lite does not send M-Pesa requests.</p>
+              <label for="discount">Discount</label>
+              <input id="discount" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
+              <table class="totals" style="margin-top:12px"><tbody id="totals"></tbody></table>
+              <div id="pay-cash-box">
+                <label for="cash-received">Cash received (optional)</label>
+                <input id="cash-received" type="text" inputmode="decimal" autocomplete="off">
+              </div>
+              <div id="pay-paystack-box" class="hidden">
+                <label for="paystack-phone">Customer's M-Pesa number</label>
+                <input id="paystack-phone" type="text" inputmode="tel" placeholder="0712 345 678" autocomplete="off">
+                <p class="muted">An M-Pesa prompt is sent to this phone. The customer enters their M-Pesa PIN and this till updates by itself. Needs the internet.</p>
+                <button id="show-qr-button" class="secondary" type="button" style="margin-top:0">Show a code instead (the customer scans it)</button>
+              </div>
+              <div id="sell-message"></div>
+              <button id="complete-button" class="big" type="button">Complete Sale</button>
+              <button id="clear-button" class="secondary" type="button">Clear this sale</button>
             </div>
-            <div id="pay-paystack-box" class="hidden">
-              <label for="paystack-phone">Customer phone (optional)</label>
-              <input id="paystack-phone" type="text" inputmode="tel" autocomplete="off">
-              <p class="muted">The customer pays on their own phone by scanning a code, so this needs the internet. The sale is kept as waiting until the payment arrives.</p>
-            </div>
-            <table class="totals" style="margin-top:12px"><tbody id="totals"></tbody></table>
-            <div id="sell-message"></div>
-            <button id="complete-button" class="big" type="button">Complete sale</button>
-            <button id="clear-button" class="secondary" type="button">Clear this sale</button>
           </div>
         </div>
       </div>
@@ -225,7 +228,7 @@
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=3"></script>
-  <script src="lite.js?v=3"></script>
+  <script src="lite-core.js?v=5"></script>
+  <script src="lite.js?v=5"></script>
 </body>
 </html>

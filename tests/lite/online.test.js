@@ -17,6 +17,7 @@ var fixtures = require('./fixtures/bcrypt_fixtures.json').cases;
 var BASE = 'https://sync.test/index.php';
 var NOW = Date.UTC(2026, 10, 8, 10, 0, 0);
 var CASHIER = '44444444-4444-4444-8444-444444444444';
+var OWNER = '33333333-3333-4333-8333-333333333333';
 var SODA = '11111111-1111-4111-8111-111111111111';
 var BREAD = '22222222-2222-4222-8222-222222222222';
 var REFERENCE = /^[0-9A-Z]{6}-\d{14}-[0-9A-Z]{4}$/;
@@ -60,7 +61,8 @@ function catalogBody() {
       { id: BREAD, sku: 'S2', name: 'Bread', barcode: null, categoryId: 'c1', retailPriceCents: 7500, wholesalePriceCents: 0, costPriceCents: 6000, reorderLevel: 1, status: 'active', stockQty: 3 }
     ],
     users: [
-      { id: CASHIER, roleId: '00000000-0000-4000-8000-000000000003', name: 'Cashier', username: 'cash', passwordHash: fixtures[0].hash, status: 'active' }
+      { id: CASHIER, roleId: '00000000-0000-4000-8000-000000000003', name: 'Cashier', username: 'cash', passwordHash: fixtures[0].hash, status: 'active' },
+      { id: OWNER, roleId: '00000000-0000-4000-8000-000000000001', name: 'Owner', username: 'owner', passwordHash: fixtures[0].hash, status: 'active' }
     ],
     roles: []
   };
@@ -68,7 +70,7 @@ function catalogBody() {
 
 /** A pretend Paystack: remembers what was initialised, and answers verification from `verdicts[reference]`. */
 function paystack() {
-  var p = { initiated: {}, initCalls: [], verifyCalls: [], verdicts: {}, initAnswer: null, onInit: null };
+  var p = { initiated: {}, initCalls: [], verifyCalls: [], verdicts: {}, initAnswer: null, onInit: null, chargeCalls: [], chargeAnswer: null };
   p.routes = {
     'POST initialize_transaction': function (request, body) {
       p.initCalls.push(body);
@@ -76,6 +78,12 @@ function paystack() {
       if (p.initAnswer) { return p.initAnswer; }
       p.initiated[body.reference] = body;
       return { status: 200, body: { status: true, message: 'Authorization URL created', data: { authorization_url: 'https://checkout.paystack.com/' + body.reference, access_code: 'ac', reference: body.reference } } };
+    },
+    'POST charge_mobile_money': function (request, body) {
+      p.chargeCalls.push(body);
+      if (p.chargeAnswer) { return p.chargeAnswer; }
+      p.initiated[body.reference] = { amount: body.amount, currency: body.currency };
+      return { status: 200, body: { status: true, message: 'Charge attempted', data: { reference: body.reference, status: 'pay_offline', display_text: 'Please complete authorization process on your mobile phone' } } };
     },
     'GET verify_transaction': function (request) {
       var reference = decodeURIComponent(/reference=([^&]+)/.exec(request.url)[1]);
@@ -796,6 +804,223 @@ test('no internet while sending: the sale and its settle wait, and go in order l
 });
 
 // ---- notices ------------------------------------------------------------------------------------------------------------
+// ---- an M-Pesa prompt instead of Paystack's payment page --------------------------------------------------------
+function prompt(t, qty, phone, then) {
+  t.core.startOnline(onlineSale(qty, { mpesaPhone: phone || '0712 345 678', customerPhone: phone || '0712 345 678' }), function (error, result) {
+    assert.ifError(error);
+    then(result, result.reference);
+  });
+}
+
+test('an M-Pesa prompt is asked of the shop\'s server, not Paystack\'s page, and the sale waits with its stock reserved', function (done) {
+  till()(function (t) {
+    prompt(t, 2, null, function (result, reference) {
+      assert.ok(REFERENCE.test(reference));
+      assert.deepStrictEqual(t.paystack.chargeCalls, [{ amount: 12000, currency: 'KES', reference: reference, phone: '0712 345 678' }], 'the number goes as typed; the server cleans it and picks the email');
+      assert.strictEqual(t.paystack.initCalls.length, 0, 'the payment page was never asked for');
+      assert.strictEqual(result.authorizationUrl, '');
+      assert.strictEqual(result.viaPrompt, true);
+      assert.strictEqual(stockOf(t.core, SODA), 8);
+      var sale = savedState(t).outbox[0];
+      assert.strictEqual(rowOf(sale.changes, 'sales').status, 'pending');
+      assert.strictEqual(rowOf(sale.changes, 'sales').customerPhone, '0712 345 678');
+      assert.strictEqual(rowOf(sale.changes, 'payment_records').status, 'initiated');
+      var waiting = t.core.online()[0];
+      assert.strictEqual(waiting.viaPrompt, true);
+      assert.strictEqual(waiting.phone, '0712 345 678');
+      assert.strictEqual(waiting.ended, false);
+      done();
+    });
+  });
+});
+
+test('a prompt that went out is kept whether Paystack says pay_offline, pending or already success', function (done) {
+  till()(function (t) {
+    var statuses = ['pay_offline', 'pending', 'success'];
+    (function next(i) {
+      if (i >= statuses.length) { done(); return; }
+      t.clock.now += 5000;
+      t.paystack.chargeAnswer = { status: 200, body: { status: true, data: { status: statuses[i] } } };
+      prompt(t, 1, null, function () {
+        assert.strictEqual(t.core.online().length, i + 1, statuses[i]);
+        next(i + 1);
+      });
+    }(0));
+  });
+});
+
+test('a prompt that was not sent records nothing, and says why', function (done) {
+  var answers = [
+    [{ status: 422, body: { status: false, message: 'Enter the customer\'s Kenyan mobile number, like 0712 345 678.' } }, /Kenyan mobile number/],
+    [{ status: 429, body: { status: false, message: 'Too many payment requests from this device. Wait a few minutes and try again.' } }, /Too many/],
+    [{ status: 422, body: { status: false, message: 'Complete payment settings before accepting Paystack payments.' } }, /payment settings/],
+    [{ status: 200, body: { status: false, message: 'Invalid' } }, /could not be sent/],
+    [{ status: 200, body: { status: false, data: { status: 'pay_offline' } } }, /could not be sent/],
+    [{ status: 200, body: { status: true, data: { status: 'failed' } } }, /could not be sent/],
+    [{ status: 200, body: { status: true, data: { status: 'send_otp' } } }, /could not be sent/],
+    [{ status: 200, body: { status: true } }, /could not be sent/],
+    ['offline', /internet/]
+  ];
+  till()(function (t) {
+    var revBefore = savedState(t).nextRev;
+    (function next(i) {
+      if (i >= answers.length) { done(); return; }
+      t.paystack.chargeAnswer = answers[i][0];
+      t.core.startOnline(onlineSale(2, { mpesaPhone: '0712345678' }), function (error, result) {
+        assert.ok(error, 'answer ' + i + ' must fail');
+        assert.ok(!result);
+        assert.ok(answers[i][1].test(error.message), 'answer ' + i + ': ' + error.message);
+        assert.strictEqual(stockOf(t.core, SODA), 10);
+        assert.strictEqual(savedState(t).outbox.length, 0);
+        assert.strictEqual(t.core.online().length, 0);
+        assert.strictEqual(savedState(t).nextRev, revBefore);
+        next(i + 1);
+      });
+    }(0));
+  });
+});
+
+test('a paid prompt is settled like any payment, and can be sent to the shop', function (done) {
+  till()(function (t) {
+    prompt(t, 2, null, function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'success' };
+      t.core.checkOnline(function (error, outcome) {
+        assert.ifError(error);
+        assert.deepStrictEqual(outcome, { paid: 1, waiting: 0 });
+        assert.deepStrictEqual(kinds(t), ['sale', 'settle-paid']);
+        t.core.flush(function (flushError, flushed) {
+          assert.ifError(flushError);
+          assert.strictEqual(flushed.sent, 2);
+          done();
+        });
+      });
+    });
+  });
+});
+
+test('a prompt the customer cancelled or let run out is marked as ended, but only the cashier cancels the sale (stock back)', function (done) {
+  till()(function (t) {
+    prompt(t, 2, null, function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'ongoing' };
+      t.core.checkOnline(function () {
+        assert.strictEqual(t.core.online()[0].ended, false, 'still waiting for the customer');
+        t.paystack.verdicts[reference] = { status: 'failed' };
+        t.core.checkOnline(function () {
+          assert.strictEqual(t.core.online()[0].ended, true);
+          assert.deepStrictEqual(kinds(t), ['sale'], 'not settled by itself');
+          assert.strictEqual(stockOf(t.core, SODA), 8);
+          t.core.cancelOnline(result.receipt.saleId, function (cancelError, outcome) {
+            assert.ifError(cancelError);
+            assert.strictEqual(outcome.outcome, 'cancelled');
+            assert.strictEqual(stockOf(t.core, SODA), 10);
+            assert.strictEqual(t.core.online().length, 0);
+            done();
+          });
+        });
+      });
+    });
+  });
+});
+
+test('only a prompt can be called ended: a payment page the customer may still open never is', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'failed' };
+      t.core.checkOnline(function () {
+        assert.strictEqual(t.core.online()[0].viaPrompt, false);
+        assert.strictEqual(t.core.online()[0].ended, false);
+        done();
+      });
+    });
+  });
+});
+
+test('a prompt survives closing the page, with its phone number and ended flag', function (done) {
+  till()(function (t) {
+    prompt(t, 1, '0733 000 111', function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'failed' };
+      t.core.checkOnline(function () {
+        var again = reloaded(t);
+        assert.strictEqual(again.online()[0].viaPrompt, true);
+        assert.strictEqual(again.online()[0].phone, '0733 000 111');
+        assert.strictEqual(again.online()[0].ended, true);
+        done();
+      });
+    });
+  });
+});
+
+// ---- handing the login back after the trip to Paystack and back ---------------------------------------------------
+function reloaded(t) { return newCore(t.storage, t.http, t.clock); }
+function editSaved(t, change) { var state = savedState(t); change(state); t.storage.data['nexapos-lite-v1'] = JSON.stringify(state); }
+
+test('after the page was reloaded, the cashier who started a waiting payment gets their login back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result) {
+      var again = reloaded(t);
+      assert.strictEqual(again.currentUser(), null, 'a reload logs everyone out');
+      var callsBefore = t.calls.length;
+      var session = again.restoreSession(CASHIER, result.receipt.saleId);
+      assert.ok(session);
+      assert.strictEqual(session.id, CASHIER);
+      assert.strictEqual(session.name, 'Cashier');
+      assert.strictEqual(session.username, 'cash');
+      assert.strictEqual(again.currentUser().id, CASHIER);
+      assert.strictEqual(again.sellBlockedReason(), null, 'and can carry on selling');
+      assert.strictEqual(t.calls.length, callsBefore, 'nothing is sent anywhere to do it');
+      done();
+    });
+  });
+});
+
+test('nobody else, and nothing else, gets a login handed back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result) {
+      var saleId = result.receipt.saleId;
+      var again = reloaded(t);
+      assert.strictEqual(again.restoreSession('99999999-9999-4999-8999-999999999999', saleId), null, 'a different person');
+      assert.strictEqual(again.restoreSession(OWNER, saleId), null, 'another real, active person - even the owner - cannot take over a cashier\'s payment');
+      assert.strictEqual(again.restoreSession(CASHIER, 'no-such-sale'), null, 'a payment that does not exist');
+      assert.strictEqual(again.restoreSession(CASHIER, ''), null);
+      assert.strictEqual(again.restoreSession('', saleId), null);
+      assert.strictEqual(again.restoreSession(null, saleId), null);
+      assert.strictEqual(again.currentUser(), null, 'still logged out after every refusal');
+      done();
+    });
+  });
+});
+
+test('a payment that is already settled hands nothing back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'success' };
+      t.core.checkOnline(function () {
+        var again = reloaded(t);
+        assert.strictEqual(again.restoreSession(CASHIER, result.receipt.saleId), null);
+        assert.strictEqual(again.currentUser(), null);
+        done();
+      });
+    });
+  });
+});
+
+test('a cashier who has been switched off, or a till that was disconnected, gets nothing back', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result) {
+      var saleId = result.receipt.saleId;
+      editSaved(t, function (state) { state.catalog.users[0].status = 'disabled'; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'switched off');
+      editSaved(t, function (state) { state.catalog.users[0].status = 'active'; state.revoked = true; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'this iPad was cut off by the owner');
+      editSaved(t, function (state) { state.revoked = false; state.joined = false; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'not connected to a shop');
+      editSaved(t, function (state) { state.joined = true; state.catalog = null; });
+      assert.strictEqual(reloaded(t).restoreSession(CASHIER, saleId), null, 'no shop data');
+      done();
+    });
+  });
+});
+
 test('notices can be dismissed one by one, and only the latest 20 are kept', function (done) {
   till()(function (t) {
     var n = 0;
