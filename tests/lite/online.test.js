@@ -950,6 +950,166 @@ test('a prompt survives closing the page, with its phone number and ended flag',
   });
 });
 
+// ---- trying a declined M-Pesa prompt again ---------------------------------------------------------------------------
+/** A prompt the customer did not approve: started, then Paystack says failed, then the till has noticed. */
+function declinedPrompt(t, qty, then) {
+  prompt(t, qty, null, function (first, firstRef) {
+    t.paystack.verdicts[firstRef] = { status: 'failed' };
+    t.core.checkOnline(function () {
+      assert.strictEqual(t.core.online()[0].ended, true);
+      t.clock.now += 5000;
+      then(first, firstRef);
+    });
+  });
+}
+
+test('trying a declined prompt again cancels it and sends a new one for the same items, to a corrected number', function (done) {
+  till()(function (t) {
+    declinedPrompt(t, 2, function (first, firstRef) {
+      assert.strictEqual(t.core.online()[0].canRetry, true);
+      t.core.retryPrompt(first.receipt.saleId, '0722 111 222', function (error, result) {
+        assert.ifError(error);
+        assert.strictEqual(result.outcome, 'started');
+        var second = result.started;
+        assert.notStrictEqual(second.reference, firstRef, 'a new prompt needs a new reference');
+        assert.strictEqual(t.paystack.chargeCalls.length, 2);
+        assert.deepStrictEqual(t.paystack.chargeCalls[1], { amount: 12000, currency: 'KES', reference: second.reference, phone: '0722 111 222' });
+        assert.strictEqual(stockOf(t.core, SODA), 8, 'the two sodas are reserved once, not twice');
+        assert.strictEqual(t.core.online().length, 1);
+        assert.strictEqual(t.core.online()[0].saleNumber, second.reference);
+        assert.strictEqual(t.core.online()[0].phone, '0722 111 222');
+        assert.strictEqual(t.core.online()[0].ended, false);
+        assert.deepStrictEqual(kinds(t), ['sale', 'settle-cancelled', 'sale'], 'the first sale is cancelled, the second is new');
+        assert.strictEqual(rowOf(savedState(t).outbox[2].changes, 'sales').totalCents, 12000);
+        done();
+      });
+    });
+  });
+});
+
+test('the second prompt keeps the first one\'s discount, sale type and prices', function (done) {
+  till()(function (t) {
+    t.core.startOnline({ cart: [{ productId: SODA, name: 'Soda', unitPriceCents: 5000, quantity: 3 }], saleType: 'wholesale', discountCents: 1000, mpesaPhone: '0712345678', customerPhone: '0712345678' }, function (error, first) {
+      assert.ifError(error);
+      t.paystack.verdicts[first.reference] = { status: 'failed' };
+      t.core.checkOnline(function () {
+        t.core.retryPrompt(first.receipt.saleId, '0712345678', function (retryError, result) {
+          assert.ifError(retryError);
+          assert.strictEqual(result.outcome, 'started');
+          assert.strictEqual(t.paystack.chargeCalls[1].amount, 14000, '3 x 50.00 less 10.00');
+          var sale = rowOf(savedState(t).outbox[2].changes, 'sales');
+          assert.strictEqual(sale.saleType, 'wholesale');
+          assert.strictEqual(sale.discountCents, 1000);
+          done();
+        });
+      });
+    });
+  });
+});
+
+test('a prompt the customer can still approve cannot be retried, and nothing changes', function (done) {
+  till()(function (t) {
+    prompt(t, 2, null, function (first) {
+      assert.strictEqual(t.core.online()[0].canRetry, false);
+      t.core.retryPrompt(first.receipt.saleId, '0712345678', function (error) {
+        assert.ok(error && /still approve/.test(error.message), error && error.message);
+        assert.strictEqual(t.paystack.chargeCalls.length, 1);
+        assert.deepStrictEqual(kinds(t), ['sale']);
+        assert.strictEqual(stockOf(t.core, SODA), 8);
+        done();
+      });
+    });
+  });
+});
+
+test('only an M-Pesa prompt can be retried, not a payment page or an unknown sale', function (done) {
+  till()(function (t) {
+    start(t, 2, {}, function (result, reference) {
+      t.paystack.verdicts[reference] = { status: 'failed' };
+      t.core.checkOnline(function () {
+        t.core.retryPrompt(result.receipt.saleId, '0712345678', function (error) {
+          assert.ok(error && /not an M-Pesa prompt/.test(error.message), error && error.message);
+          t.core.retryPrompt('nope', '0712345678', function (error2) {
+            assert.ok(error2);
+            assert.strictEqual(t.paystack.chargeCalls.length, 0);
+            assert.deepStrictEqual(kinds(t), ['sale']);
+            done();
+          });
+        });
+      });
+    });
+  });
+});
+
+test('if the customer did approve it after all, the sale is paid and no second prompt is sent', function (done) {
+  till()(function (t) {
+    declinedPrompt(t, 2, function (first, firstRef) {
+      t.paystack.verdicts[firstRef] = { status: 'success' };
+      t.core.retryPrompt(first.receipt.saleId, '0712345678', function (error, result) {
+        assert.ifError(error);
+        assert.strictEqual(result.outcome, 'paid');
+        assert.strictEqual(t.paystack.chargeCalls.length, 1, 'no second prompt');
+        assert.deepStrictEqual(kinds(t), ['sale', 'settle-paid']);
+        assert.strictEqual(stockOf(t.core, SODA), 8);
+        done();
+      });
+    });
+  });
+});
+
+test('a new prompt that cannot be sent leaves the first sale cancelled and hands back the items to ring up again', function (done) {
+  till()(function (t) {
+    declinedPrompt(t, 2, function (first) {
+      t.paystack.chargeAnswer = { status: 422, body: { status: false, message: 'Enter the customer\'s Kenyan mobile number, like 0712 345 678.' } };
+      t.core.retryPrompt(first.receipt.saleId, '12345', function (error, result) {
+        assert.ifError(error);
+        assert.strictEqual(result.outcome, 'restart-failed');
+        assert.ok(/Kenyan mobile number/.test(result.message), result.message);
+        assert.deepStrictEqual(result.request.cart, [{ productId: SODA, name: 'Soda', unitPriceCents: 6000, quantity: 2 }]);
+        assert.strictEqual(result.request.saleType, 'retail');
+        assert.strictEqual(stockOf(t.core, SODA), 10, 'nothing stays reserved');
+        assert.strictEqual(t.core.online().length, 0);
+        assert.deepStrictEqual(kinds(t), ['sale', 'settle-cancelled']);
+        done();
+      });
+    });
+  });
+});
+
+test('retrying needs the internet, and changes nothing without it', function (done) {
+  till()(function (t) {
+    declinedPrompt(t, 2, function (first, firstRef) {
+      t.paystack.verdicts[firstRef] = 'offline';
+      t.core.retryPrompt(first.receipt.saleId, '0712345678', function (error) {
+        assert.ok(error && error.code === 'offline', error && error.message);
+        assert.strictEqual(t.core.online().length, 1);
+        assert.strictEqual(t.core.online()[0].ended, true);
+        assert.deepStrictEqual(kinds(t), ['sale']);
+        assert.strictEqual(t.paystack.chargeCalls.length, 1);
+        done();
+      });
+    });
+  });
+});
+
+test('a retry survives closing the page; a prompt saved before retries existed asks to be rung up again by hand', function (done) {
+  till()(function (t) {
+    declinedPrompt(t, 2, function (first) {
+      assert.strictEqual(reloaded(t).online()[0].canRetry, true);
+      editSaved(t, function (state) { delete state.online[0].request; });
+      var old = reloaded(t);
+      assert.strictEqual(old.online()[0].canRetry, false);
+      old.login('cash', 'Passw0rd!', function (loginError) {
+        assert.ifError(loginError);
+        old.retryPrompt(first.receipt.saleId, '0712345678', function (error) {
+          assert.ok(error && /ring the sale up again/.test(error.message), error && error.message);
+          done();
+        });
+      });
+    });
+  });
+});
+
 // ---- handing the login back after the trip to Paystack and back ---------------------------------------------------
 function reloaded(t) { return newCore(t.storage, t.http, t.clock); }
 function editSaved(t, change) { var state = savedState(t); change(state); t.storage.data['nexapos-lite-v1'] = JSON.stringify(state); }

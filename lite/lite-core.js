@@ -568,6 +568,16 @@
       }
     }
 
+    /** What an online sale was (items, type, discount), kept with it so a declined prompt can be sent again. */
+    function rememberRequest(request) {
+      var cart = [];
+      for (var i = 0; i < request.cart.length; i++) {
+        var line = request.cart[i];
+        cart.push({ productId: line.productId, name: line.name, unitPriceCents: line.unitPriceCents, quantity: line.quantity });
+      }
+      return { cart: cart, saleType: request.saleType, discountCents: request.discountCents || 0, customerName: request.customerName || '' };
+    }
+
     /**
      * Starts an online payment, in the app's order: Paystack is asked FIRST (it needs the internet), and only when it
      * has accepted the payment is the sale recorded as pending (stock reserved). Nothing is recorded if Paystack
@@ -639,7 +649,8 @@
         var link = prompt ? '' : String(data.authorization_url);
         commitBuilt(built, {
           saleId: built.receipt.saleId, saleNumber: saleNumber, amountCents: built.receipt.totalCents, currency: body.currency,
-          authorizationUrl: link, viaPrompt: !!prompt, phone: prompt, ended: false, createdAt: now()
+          authorizationUrl: link, viaPrompt: !!prompt, phone: prompt, ended: false, createdAt: now(),
+          request: rememberRequest(request)
         });
         cb(null, { receipt: built.receipt, authorizationUrl: link, reference: saleNumber, viaPrompt: !!prompt });
       });
@@ -781,10 +792,56 @@
       });
     }
 
+    /**
+     * The customer did not approve an M-Pesa prompt (it was declined or ran out): send it again in one step.
+     * Paystack wants a fresh reference for a fresh prompt, so the declined sale is cancelled (after the usual last
+     * check - if the customer HAS paid in the meantime that is what happens, and no second prompt is sent) and the
+     * same items are rung up again with a new prompt to [phone] (a corrected number is fine).
+     * cb(error) | cb(null, {outcome:'paid', saleId}) | cb(null, {outcome:'started', started}) |
+     * cb(null, {outcome:'restart-failed', message, request}) - the old sale is cancelled but the new prompt could
+     * not be sent; request lets the screen put the cart back so nothing has to be typed again.
+     */
+    function retryPrompt(saleId, phone, cb) {
+      var item = findOnline(saleId);
+      if (!item || !item.viaPrompt) {
+        cb(problem('input', 'That is not an M-Pesa prompt that is waiting.'));
+        return;
+      }
+      if (!item.ended) {
+        cb(problem('input', 'The customer can still approve the first prompt. Wait for it to end, or cancel it.'));
+        return;
+      }
+      if (!item.request) {
+        cb(problem('input', 'This sale cannot be repeated automatically. Cancel it and ring the sale up again.'));
+        return;
+      }
+      var request = item.request;
+      cancelOnline(saleId, function (error, outcome) {
+        if (error) {
+          cb(error);
+          return;
+        }
+        if (outcome.outcome === 'paid') {
+          cb(null, { outcome: 'paid', saleId: saleId });
+          return;
+        }
+        startOnline({
+          cart: request.cart, saleType: request.saleType, discountCents: request.discountCents,
+          customerName: request.customerName, customerPhone: phone, mpesaPhone: phone
+        }, function (startError, started) {
+          if (startError) {
+            cb(null, { outcome: 'restart-failed', message: startError.message, request: request });
+            return;
+          }
+          cb(null, { outcome: 'started', started: started });
+        });
+      });
+    }
+
     function onlineList() {
       var out = [];
       for (var i = 0; i < state.online.length; i++) {
-        out.push({ saleId: state.online[i].saleId, saleNumber: state.online[i].saleNumber, amountCents: state.online[i].amountCents, createdAt: state.online[i].createdAt, authorizationUrl: state.online[i].authorizationUrl, viaPrompt: !!state.online[i].viaPrompt, phone: state.online[i].phone || '', ended: !!state.online[i].ended });
+        out.push({ saleId: state.online[i].saleId, saleNumber: state.online[i].saleNumber, amountCents: state.online[i].amountCents, createdAt: state.online[i].createdAt, authorizationUrl: state.online[i].authorizationUrl, viaPrompt: !!state.online[i].viaPrompt, phone: state.online[i].phone || '', ended: !!state.online[i].ended, canRetry: !!(state.online[i].viaPrompt && state.online[i].ended && state.online[i].request) });
       }
       return out;
     }
@@ -1001,6 +1058,7 @@
       startOnline: startOnline,
       checkOnline: checkOnline,
       cancelOnline: cancelOnline,
+      retryPrompt: retryPrompt,
       online: onlineList,
       notices: function () { return state.notices; },
       dismissNotice: dismissNotice,
