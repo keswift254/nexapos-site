@@ -98,7 +98,7 @@ var ctx = {};
 
 function runFrom(index) {
   if (index >= steps.length) {
-    console.log('Lite online-payment integration test passed: ' + steps.length + ' steps against the real platform (initialise -> pay / abandon -> verify -> settle accepted by the guard; wrong amount, missing payout account and a payment finished elsewhere handled).');
+    console.log('Lite online-payment integration test passed: ' + steps.length + ' steps against the real platform (initialise -> pay / abandon -> verify -> settle accepted by the guard; wrong amount, missing payout account and a payment finished elsewhere handled; M-Pesa prompts sent, refused and limited).');
     return;
   }
   var current = steps[index];
@@ -371,6 +371,105 @@ step('the guard refuses a tampered settle (sale paid but its payment failed) and
       });
     });
   });
+});
+
+step('an M-Pesa prompt: the server sends Paystack the cleaned number, the shop\'s payout account and its own email; the sale waits, then is paid and settled', function (next) {
+  ctx.lite.startOnline({ cart: [soda(1)], saleType: 'retail', mpesaPhone: '0712 345 678', customerPhone: '0712 345 678' }, function (error, started) {
+    assert.ifError(error);
+    assert.strictEqual(started.viaPrompt, true);
+    assert.strictEqual(started.authorizationUrl, '');
+    fakeControl('/__control/get?reference=' + encodeURIComponent(started.reference), function (got) {
+      assert.strictEqual(got.status, true, 'Paystack was asked');
+      var asked = got.entry.request;
+      assert.deepStrictEqual(asked.mobile_money, { phone: '+254712345678', provider: 'mpesa' });
+      assert.strictEqual(asked.email, '254712345678@nexapos.cc', 'the customer\'s own address, not the till placeholder');
+      assert.strictEqual(asked.amount, 6000);
+      assert.strictEqual(asked.currency, 'KES');
+      assert.strictEqual(asked.subaccount, 'SUB_LITE_D');
+      assert.strictEqual(asked.bearer, 'subaccount');
+      assert.strictEqual(asked.transaction_charge, 0, 'no platform commission');
+      assert.strictEqual(asked.reference, started.reference);
+      assert.ok(!('callback_url' in asked), 'no payment page, so no return address');
+      ctx.lite.flush(function (flushError, flushed) {
+        assert.ifError(flushError);
+        assert.strictEqual(flushed.refused, 0, JSON.stringify(flushed.rejected));
+        ctx.lite.checkOnline(function (checkError, outcome) {
+          assert.ifError(checkError);
+          assert.strictEqual(outcome.paid, 0, 'the customer has not approved yet');
+          assert.ok(ctx.lite.online().some(function (o) { return o.saleNumber === started.reference; }), 'and it is still waiting');
+          fakeControl('/__control/set?reference=' + encodeURIComponent(started.reference) + '&status=success', function () {
+            ctx.lite.checkOnline(function (paidError, paid) {
+              assert.ifError(paidError);
+              assert.strictEqual(paid.paid, 1);
+              assert.ok(!ctx.lite.online().some(function (o) { return o.saleNumber === started.reference; }), 'it is no longer waiting');
+              ctx.lite.flush(function (settleError, settled) {
+                assert.ifError(settleError);
+                assert.strictEqual(settled.refused, 0, JSON.stringify(settled.rejected));
+                pullAll(function (changes) {
+                  assert.strictEqual(latestVersions(changes, 'sales')[started.receipt.saleId].payload.status, 'paid');
+                  assert.strictEqual(latestVersions(changes, 'sales')[started.receipt.saleId].payload.customerPhone, '0712 345 678');
+                  next();
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+step('an M-Pesa prompt that is refused or not sent records nothing, with the reason', function (next) {
+  var stockBefore = stockOf(ids.soda);
+  var outboxBefore = ctx.lite.outbox().pending;
+  var cases = [
+    ['0700000000', /Invalid mobile number/],      // Paystack refuses the number outright
+    ['0711000000', /could not be sent/],           // Paystack accepts it but the charge failed
+    ['12345', /Kenyan mobile number/],             // the server refuses before Paystack is asked
+    ['+255712345678', /Kenyan mobile number/]      // not a Kenyan number
+  ];
+  (function go(i) {
+    if (i >= cases.length) { next(); return; }
+    ctx.lite.startOnline({ cart: [soda(1)], saleType: 'retail', mpesaPhone: cases[i][0] }, function (error) {
+      assert.ok(error && cases[i][1].test(error.message), cases[i][0] + ': ' + (error && error.message));
+      assert.strictEqual(stockOf(ids.soda), stockBefore, 'no stock reserved');
+      assert.strictEqual(ctx.lite.outbox().pending, outboxBefore);
+      go(i + 1);
+    });
+  }(0));
+});
+
+step('a prompt in a currency other than KES, or without a payout account, is refused by the server', function (next) {
+  var key = JSON.parse(ctx.storage.data['nexapos-lite-v1']).device.apiKey;
+  api('POST', 'charge_mobile_money', { amount: 6000, currency: 'USD', reference: 'CUR-' + Date.now(), phone: '0712345678' }, key, function (status, body) {
+    assert.strictEqual(status, 422, JSON.stringify(body));
+    assert.ok(/KES/.test(body.message), body.message);
+    sql("UPDATE shops SET subaccount_code = NULL WHERE id = (SELECT shop_id FROM clients WHERE device_id = '" + nativeId + "')");
+    api('POST', 'charge_mobile_money', { amount: 6000, currency: 'KES', reference: 'NOP-' + Date.now(), phone: '0712345678' }, key, function (noPayoutStatus, noPayout) {
+      sql("UPDATE shops SET subaccount_code = 'SUB_LITE_D' WHERE id = (SELECT shop_id FROM clients WHERE device_id = '" + nativeId + "')");
+      assert.strictEqual(noPayoutStatus, 422, JSON.stringify(noPayout));
+      assert.ok(/payment settings/i.test(noPayout.message), noPayout.message);
+      next();
+    });
+  });
+});
+
+step('one device cannot send an endless stream of prompts (a limit of 12 in 10 minutes)', function (next) {
+  var key = JSON.parse(ctx.storage.data['nexapos-lite-v1']).device.apiKey;
+  var tries = 0;
+  (function go() {
+    tries += 1;
+    assert.ok(tries <= 15, 'the limit never applied');
+    api('POST', 'charge_mobile_money', { amount: 6000, currency: 'KES', reference: 'LIM-' + Date.now() + '-' + tries, phone: '0712345678' }, key, function (status, body) {
+      if (status === 429) {
+        assert.ok(/Too many/.test(body.message), body.message);
+        next();
+        return;
+      }
+      assert.strictEqual(status, 200, JSON.stringify(body));
+      go();
+    });
+  }());
 });
 
 runFrom(0);

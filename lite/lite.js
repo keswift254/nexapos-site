@@ -88,7 +88,8 @@
   // pick up exactly where it left off. It expires, and lite/paid.html reads it to know it should send the tab back here.
   var RETURN_KEY = 'nexapos-lite-return';
   var RETURN_VALID_MS = 30 * 60 * 1000;
-  ui.payMode = 'ipad';
+  ui.view = 'pick';
+  var ENDED_TEXT = 'The customer did not approve the prompt (they cancelled it, or it ran out of time). Cancel this payment and start the sale again.';
 
   function methodLabel(method) {
     return method === 'cash' ? 'Cash' : (method === 'paystack' ? 'Online (Paystack)' : 'M-Pesa');
@@ -256,17 +257,17 @@
     for (var i = 0; i < ui.cart.length; i++) {
       if (ui.cart[i].productId === product.id) {
         if (ui.cart[i].qty + 1 > product.stockQty) {
-          say('sell-message', 'warn', 'Only ' + product.stockQty + ' ' + product.name + ' in stock.');
+          say('pick-message', 'warn', 'Only ' + product.stockQty + ' ' + product.name + ' in stock.');
           return;
         }
         ui.cart[i].qty += 1;
-        say('sell-message', '', '');
+        say('pick-message', '', '');
         renderCart();
         return;
       }
     }
     ui.cart.push({ productId: product.id, name: product.name, qty: 1 });
-    say('sell-message', '', '');
+    say('pick-message', '', '');
     renderCart();
   }
 
@@ -285,7 +286,7 @@
     renderCart();
   };
 
-  // ---- selling: the cart and totals --------------------------------------------------------------------------
+  // ---- selling: the cart and totals (the app's Cart & Checkout) ---------------------------------------------
   function totals() {
     var map = catalogMap();
     var subtotal = 0;
@@ -303,6 +304,22 @@
     if (discount > subtotal) { discount = subtotal; }
     return { map: map, lines: lines, subtotal: subtotal, discount: discount, discountOk: discountOk, total: subtotal - discount };
   }
+
+  function cartCount() {
+    var n = 0;
+    for (var i = 0; i < ui.cart.length; i++) { n += ui.cart[i].qty; }
+    return n;
+  }
+
+  /** Two steps, as in the app: pick products, then Cart & Checkout. */
+  function showView(name) {
+    ui.view = name;
+    show('view-pick', name === 'pick');
+    show('view-cart', name === 'cart');
+    if (name === 'cart') { renderCart(); }
+  }
+  el('view-cart-button').onclick = function () { showView('cart'); };
+  el('back-to-products').onclick = function () { showView('pick'); };
 
   function renderCart() {
     var t = totals();
@@ -341,9 +358,12 @@
         row.appendChild(controls);
         row.appendChild(make('td', 'num', core.formatCents(line.total)));
         var remove = make('td', 'num');
-        var x = make('button', 'small secondary', '×');
+        var x = make('button', 'small secondary', '\u00d7');
         x.type = 'button';
-        x.onclick = function () { ui.cart.splice(index, 1); renderCart(); };
+        x.onclick = function () {
+          // As in the app: a stray tap must not drop a line without asking.
+          if (window.confirm('Remove "' + ui.cart[index].name + '" from this sale?')) { ui.cart.splice(index, 1); renderCart(); }
+        };
         remove.appendChild(x);
         row.appendChild(remove);
         body.appendChild(row);
@@ -359,14 +379,17 @@
       tbody.appendChild(row);
     }
     totalRow('Subtotal', core.formatCents(t.subtotal));
-    if (t.discount > 0) { totalRow('Discount', '-' + core.formatCents(t.discount)); }
+    totalRow('Discount', core.formatCents(t.discount));
     totalRow('Total', core.formatCents(t.total), 'grand');
     var received = ui.payment === 'cash' ? core.parseCents(el('cash-received').value) : null;
-    if (received !== null && received >= t.total && ui.cart.length > 0) { totalRow('Change to give', core.formatCents(received - t.total)); }
-    if (received !== null && received < t.total && ui.cart.length > 0) { totalRow('Still to pay', core.formatCents(t.total - received)); }
+    if (received !== null && received >= t.total && ui.cart.length > 0) { totalRow('Change due', core.formatCents(received - t.total)); }
+    if (received !== null && received < t.total && ui.cart.length > 0) { totalRow('Still owed', core.formatCents(t.total - received)); }
 
+    var count = cartCount();
+    setText('view-cart-button', count === 0 ? 'View cart' : 'View cart (' + count + ') \u00b7 ' + core.formatCents(t.total));
     var blocked = core.sellBlockedReason();
-    el('complete-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk;
+    el('complete-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk || ui.starting;
+    el('show-qr-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk || ui.starting;
     if (blocked) { say('sell-message', 'bad', blocked); }
     else if (!t.discountOk) { say('sell-message', 'warn', 'The discount must be a number, like 50 or 50.50.'); }
   }
@@ -382,58 +405,63 @@
     renderPicker();
     renderCart();
   }
+  // Payment methods, as in the app: Cash, or an M-Pesa Prompt sent to the customer's phone.
   el('pay-cash').onclick = function () { setPayment('cash'); };
-  el('pay-mpesa').onclick = function () { setPayment('mpesa_manual'); };
   el('pay-paystack').onclick = function () { setPayment('paystack'); };
-  function completeLabel() { return ui.payment === 'paystack' ? 'Take payment online' : 'Complete sale'; }
+  function completeLabel() { return ui.payment === 'paystack' ? 'Send M-Pesa Prompt' : 'Complete Sale'; }
   function setPayment(method) {
     ui.payment = method;
     el('pay-cash').className = method === 'cash' ? 'on' : '';
-    el('pay-mpesa').className = method === 'mpesa_manual' ? 'on' : '';
     el('pay-paystack').className = method === 'paystack' ? 'on' : '';
     show('pay-cash-box', method === 'cash');
-    show('pay-mpesa-box', method === 'mpesa_manual');
     show('pay-paystack-box', method === 'paystack');
     setText('complete-button', completeLabel());
+    say('sell-message', '', '');
     renderCart();
   }
 
   function resetSale() {
     ui.cart = [];
     el('discount').value = '';
-    el('customer').value = '';
     el('cash-received').value = '';
-    el('mpesa-phone').value = '';
-    el('mpesa-ref').value = '';
     el('paystack-phone').value = '';
     say('sell-message', '', '');
+    say('pick-message', '', '');
     setSaleType('retail');
     setPayment('cash');
+    showView('pick');
   }
-  el('clear-button').onclick = resetSale;
+  el('clear-button').onclick = function () {
+    if (ui.cart.length === 0 || window.confirm('Clear this whole sale?')) { resetSale(); }
+  };
 
   // ---- completing a sale -------------------------------------------------------------------------------------
-  el('complete-button').onclick = function () {
-    if (ui.starting) { return; }
-    var t = totals();
+  function buildCart(t) {
     var cart = [];
     for (var i = 0; i < t.lines.length; i++) {
       cart.push({ productId: t.lines[i].item.productId, name: t.lines[i].item.name, unitPriceCents: t.lines[i].unit, quantity: t.lines[i].item.qty });
     }
+    return cart;
+  }
+
+  el('complete-button').onclick = function () {
+    if (ui.starting) { return; }
+    var t = totals();
+    var cart = buildCart(t);
     if (ui.payment === 'paystack') {
-      startOnlineSale(t, cart);
+      startOnlineSale(t, cart, 'prompt');
       return;
     }
     var cashTyped = el('cash-received').value.replace(/^\s+|\s+$/g, '');
     var result = core.sell({
       cart: cart,
       saleType: ui.saleType,
-      paymentMethod: ui.payment,
+      paymentMethod: 'cash',
       discountCents: t.discount,
-      customerName: el('customer').value,
-      customerPhone: el('mpesa-phone').value,
-      referenceNote: el('mpesa-ref').value,
-      cashReceivedCents: ui.payment === 'cash' && cashTyped !== '' ? core.parseCents(cashTyped) : null
+      customerName: '',
+      customerPhone: '',
+      referenceNote: '',
+      cashReceivedCents: cashTyped !== '' ? core.parseCents(cashTyped) : null
     });
     if (!result.ok) {
       say('sell-message', 'bad', result.message);
@@ -449,6 +477,12 @@
       updateReceiptStatus();
       renderSales();
     });
+  };
+  // The other way to take an online payment: a code on the screen that the customer scans with their own phone.
+  el('show-qr-button').onclick = function () {
+    if (ui.starting) { return; }
+    var t = totals();
+    startOnlineSale(t, buildCart(t), 'qr');
   };
 
   function receiptStatusLine(saleId) {
@@ -542,19 +576,31 @@
     });
   }
 
-  function startOnlineSale(t, cart) {
+  /** mode 'prompt': an M-Pesa PIN prompt goes to the customer's phone; mode 'qr': a code on this screen for the customer to scan. */
+  function startOnlineSale(t, cart, mode) {
+    var phone = el('paystack-phone').value.replace(/^\s+|\s+$/g, '');
+    if (mode === 'prompt') {
+      var digits = phone.replace(/[^0-9]/g, '');
+      if (digits.length < 9 || digits.length > 13) {
+        say('sell-message', 'warn', 'Enter the customer\'s M-Pesa number, like 0712 345 678.');
+        return;
+      }
+    }
     ui.starting = true;
-    setBusy('complete-button', true, 'Contacting Paystack...');
+    setBusy('complete-button', true, mode === 'prompt' ? 'Sending the prompt...' : completeLabel());
+    setBusy('show-qr-button', true, mode === 'qr' ? 'Contacting Paystack...' : null);
     say('sell-message', '', '');
     core.startOnline({
       cart: cart,
       saleType: ui.saleType,
       discountCents: t.discount,
-      customerName: el('customer').value,
-      customerPhone: el('paystack-phone').value
+      customerName: '',
+      customerPhone: phone,
+      mpesaPhone: mode === 'prompt' ? phone : ''
     }, function (error, started) {
       ui.starting = false;
       setBusy('complete-button', false, completeLabel());
+      setBusy('show-qr-button', false, 'Show a code instead (the customer scans it)');
       if (error) {
         renderCart();
         say('sell-message', 'bad', error.message);
@@ -562,11 +608,6 @@
       }
       resetSale();
       renderAll();
-      if (ui.payMode === 'ipad') {
-        // Like the apps: straight to the payment page, and back here with the receipt when it is paid.
-        goToPaymentPage(started.receipt.saleId);
-        return;
-      }
       openPayScreen(started.receipt.saleId);
       sendWaitingSales();
     });
@@ -645,7 +686,7 @@
     setText('pay-amount', core.formatCents(item.amountCents));
     setText('pay-number', 'Sale ' + item.saleNumber);
     var drawn = false;
-    if (typeof window.qrcode === 'function') {
+    if (!item.viaPrompt && typeof window.qrcode === 'function') {
       try {
         var qr = window.qrcode(0, 'M');
         qr.addData(item.authorizationUrl);
@@ -657,10 +698,16 @@
       }
     }
     show('pay-qr', drawn);
-    setText('pay-help', drawn
-      ? 'Ask the customer to scan this code with their phone camera, then pay on their phone (M-Pesa or card). This screen updates by itself when the payment arrives.'
-      : 'The payment code could not be drawn on this iPad. Use "Pay on this iPad instead".');
-    say('pay-status', 'warn', 'Waiting for the payment...');
+    show('pay-open', !item.viaPrompt);
+    setText('pay-title', item.viaPrompt ? 'Waiting for the customer to approve' : 'Waiting for the customer to pay');
+    if (item.viaPrompt) {
+      setText('pay-help', 'An M-Pesa prompt was sent to ' + item.phone + '. Ask the customer to enter their M-Pesa PIN on their phone. This screen updates by itself when the payment arrives.');
+    } else {
+      setText('pay-help', drawn
+        ? 'Ask the customer to scan this code with their phone camera, then pay on their phone (M-Pesa or card). This screen updates by itself when the payment arrives.'
+        : 'The payment code could not be drawn on this iPad. Use "Pay on this iPad instead".');
+    }
+    say('pay-status', item.ended ? 'bad' : 'warn', item.ended ? ENDED_TEXT : 'Waiting for the payment...');
     show('receipt-box', false);
     show('sell-form', false);
     show('pay-screen', true);
@@ -692,11 +739,14 @@
     core.checkOnline(function (error) {
       if (manual) { setBusy('pay-check', false, 'Check now'); }
       if (ui.payingId !== id) { return; }
-      if (!findWaiting(id)) {
+      var waiting = findWaiting(id);
+      if (!waiting) {
         paidNow(id);
         return;
       }
-      if (error) {
+      if (waiting.ended) {
+        say('pay-status', 'bad', ENDED_TEXT);
+      } else if (error) {
         say('pay-status', 'warn', error.code === 'offline' ? 'No internet right now. The payment is still waiting; checking again...' : 'Waiting for the payment... (' + error.message + ')');
       } else {
         say('pay-status', 'warn', 'Waiting for the payment...');
@@ -733,17 +783,6 @@
     if (ui.payingId && findWaiting(ui.payingId)) { goToPaymentPage(ui.payingId); }
   };
 
-  function setPayMode(mode) {
-    ui.payMode = mode;
-    el('paymode-here').className = mode === 'ipad' ? 'on' : '';
-    el('paymode-qr').className = mode === 'qr' ? 'on' : '';
-    setText('paymode-help', mode === 'ipad'
-      ? 'The payment page opens on this iPad by itself, the customer pays there, and the till comes back with the receipt. Needs the internet.'
-      : 'A code appears on the screen. The customer scans it with their own phone and pays there; this screen updates by itself. Needs the internet.');
-  }
-  el('paymode-here').onclick = function () { setPayMode('ipad'); };
-  el('paymode-qr').onclick = function () { setPayMode('qr'); };
-
   function renderNotices() {
     var box = el('till-notices');
     box.innerHTML = '';
@@ -778,7 +817,7 @@
       (function (item) {
         var row = make('tr', 'waitrow');
         var info = make('td', '', item.saleNumber);
-        info.appendChild(make('div', 'sku', timeText(item.createdAt) + ' · waiting for the customer'));
+        info.appendChild(make('div', 'sku', timeText(item.createdAt) + ' · ' + (item.ended ? 'not approved by the customer' : (item.viaPrompt ? 'prompt sent to ' + item.phone : 'waiting for the customer'))));
         row.appendChild(info);
         row.appendChild(make('td', 'num', core.formatCents(item.amountCents)));
         var actions = make('td', 'num');

@@ -572,6 +572,11 @@
      * Starts an online payment, in the app's order: Paystack is asked FIRST (it needs the internet), and only when it
      * has accepted the payment is the sale recorded as pending (stock reserved). Nothing is recorded if Paystack
      * does not accept it. cb(error) or cb(null, {receipt, authorizationUrl, reference}).
+     *
+     * Two ways to collect: Paystack's payment page (a link/QR the customer opens), or - when request.mpesaPhone is
+     * given - an M-Pesa PIN prompt sent straight to that phone by the shop's server, with no page at all (the way
+     * that works on an old iPad whose browser cannot open Paystack's page). Either way the sale is pending until the
+     * payment is confirmed, and the rest of the flow (check, settle, cancel) is the same.
      */
     function startOnline(request, cb) {
       var blocked = sellBlock();
@@ -594,20 +599,32 @@
         return;
       }
       var startedAtRev = state.nextRev;
-      var body = { email: 'till@nexapos.cc', amount: built.receipt.totalCents, currency: currencyCode(), reference: saleNumber, return_to: 'lite' };
-      var phone = String(request.customerPhone || '').replace(/[^0-9+]/g, '');
-      if (phone) {
-        body.customer_phone = phone;
+      var prompt = String(request.mpesaPhone || '').replace(/^\s+|\s+$/g, '');
+      var body;
+      if (prompt) {
+        body = { amount: built.receipt.totalCents, currency: currencyCode(), reference: saleNumber, phone: prompt };
+      } else {
+        body = { email: 'till@nexapos.cc', amount: built.receipt.totalCents, currency: currencyCode(), reference: saleNumber, return_to: 'lite' };
+        var phone = String(request.customerPhone || '').replace(/[^0-9+]/g, '');
+        if (phone) {
+          body.customer_phone = phone;
+        }
       }
-      call('POST', 'initialize_transaction', body, function (error, response) {
+      call('POST', prompt ? 'charge_mobile_money' : 'initialize_transaction', body, function (error, response) {
         if (error) {
           cb(error.code === 'offline'
-            ? problem('offline', 'Paying online needs the internet. Check the connection, or take cash or M-Pesa instead.')
+            ? problem('offline', 'Paying online needs the internet. Check the connection, or take cash instead.')
             : error);
           return;
         }
         var data = response && response.data ? response.data : null;
-        if (!response || response.status !== true || !data || !data.authorization_url) {
+        if (prompt) {
+          var asked = data ? String(data.status || '') : '';
+          if (!response || response.status !== true || (asked !== 'pay_offline' && asked !== 'pending' && asked !== 'success')) {
+            cb(problem('server', 'The M-Pesa prompt could not be sent. Nothing was charged. Check the number and try again.'));
+            return;
+          }
+        } else if (!response || response.status !== true || !data || !data.authorization_url) {
           cb(problem('server', 'The payment service did not give a payment page. Nothing was charged. Try again.'));
           return;
         }
@@ -619,11 +636,12 @@
             return;
           }
         }
+        var link = prompt ? '' : String(data.authorization_url);
         commitBuilt(built, {
           saleId: built.receipt.saleId, saleNumber: saleNumber, amountCents: built.receipt.totalCents, currency: body.currency,
-          authorizationUrl: String(data.authorization_url), createdAt: now()
+          authorizationUrl: link, viaPrompt: !!prompt, phone: prompt, ended: false, createdAt: now()
         });
-        cb(null, { receipt: built.receipt, authorizationUrl: String(data.authorization_url), reference: saleNumber });
+        cb(null, { receipt: built.receipt, authorizationUrl: link, reference: saleNumber, viaPrompt: !!prompt });
       });
     }
 
@@ -702,6 +720,12 @@
             next(index + 1);
             return;
           }
+          if (items[index].viaPrompt && /^(failed|abandoned|reversed|cancelled)$/.test(String(result.status || '').toLowerCase()) && !items[index].ended) {
+            // The customer cancelled the prompt on their phone or it ran out (about 3 minutes): it will not be paid.
+            // The sale still waits for the cashier to cancel it (which puts the stock back); this only says so.
+            items[index].ended = true;
+            save();
+          }
           if (result.mismatch) {
             if (!items[index].mismatchNoticed) {
               // Said once per payment, not on every check.
@@ -760,7 +784,7 @@
     function onlineList() {
       var out = [];
       for (var i = 0; i < state.online.length; i++) {
-        out.push({ saleId: state.online[i].saleId, saleNumber: state.online[i].saleNumber, amountCents: state.online[i].amountCents, createdAt: state.online[i].createdAt, authorizationUrl: state.online[i].authorizationUrl });
+        out.push({ saleId: state.online[i].saleId, saleNumber: state.online[i].saleNumber, amountCents: state.online[i].amountCents, createdAt: state.online[i].createdAt, authorizationUrl: state.online[i].authorizationUrl, viaPrompt: !!state.online[i].viaPrompt, phone: state.online[i].phone || '', ended: !!state.online[i].ended });
       }
       return out;
     }
