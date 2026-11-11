@@ -86,6 +86,10 @@
   // Paying on the iPad itself leaves this page for Paystack and comes back to it (a fresh page load, so the login is
   // gone). This note, kept for this browser tab only, says which cashier was paying for which sale, so the till can
   // pick up exactly where it left off. It expires, and lite/paid.html reads it to know it should send the tab back here.
+  // Paystack's own payment page sits behind a browser check that a very old iPad cannot pass (the page stays blank), so
+  // the "Pay on this iPad instead" button is NOT offered. The way back from that page is built and tested, though:
+  // set this to true to offer it again (for example on a newer tablet).
+  var OFFER_PAY_ON_THIS_DEVICE = false;
   var RETURN_KEY = 'nexapos-lite-return';
   var RETURN_VALID_MS = 30 * 60 * 1000;
   ui.view = 'pick';
@@ -698,7 +702,7 @@
       }
     }
     show('pay-qr', drawn);
-    show('pay-open', !item.viaPrompt);
+    show('pay-open', !item.viaPrompt && OFFER_PAY_ON_THIS_DEVICE);
     setText('pay-title', item.viaPrompt ? 'Waiting for the customer to approve' : 'Waiting for the customer to pay');
     if (item.viaPrompt) {
       setText('pay-help', 'An M-Pesa prompt was sent to ' + item.phone + '. Ask the customer to enter their M-Pesa PIN on their phone. This screen updates by itself when the payment arrives.');
