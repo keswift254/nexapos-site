@@ -93,7 +93,7 @@
   var RETURN_KEY = 'nexapos-lite-return';
   var RETURN_VALID_MS = 30 * 60 * 1000;
   ui.view = 'pick';
-  var ENDED_TEXT = 'The customer did not approve the prompt (they cancelled it, or it ran out of time). Cancel this payment and start the sale again.';
+  var ENDED_TEXT = 'The customer did not approve the prompt (they cancelled it, or it ran out of time). Send it again below (you can correct the number), or cancel the payment.';
 
   function methodLabel(method) {
     return method === 'cash' ? 'Cash' : (method === 'paystack' ? 'Online (Paystack)' : 'M-Pesa');
@@ -677,15 +677,24 @@
     stopPayPoll();
     clearReturnToken();
     ui.payingId = null;
+    show('retry-box', false);
     show('pay-screen', false);
     show('receipt-box', false);
     show('sell-form', true);
+  }
+
+  /** A prompt the customer did not approve can be sent again, to the same or a corrected number. */
+  function showRetry(item) {
+    var can = !!(item && item.canRetry);
+    show('retry-box', can);
+    if (can && el('retry-phone').value === '') { el('retry-phone').value = item.phone; }
   }
 
   function openPayScreen(saleId) {
     var item = findWaiting(saleId);
     if (!item) { return; }
     ui.payingId = saleId;
+    el('retry-phone').value = '';
     renderOnline();
     setText('pay-amount', core.formatCents(item.amountCents));
     setText('pay-number', 'Sale ' + item.saleNumber);
@@ -712,6 +721,7 @@
         : 'The payment code could not be drawn on this iPad. Use "Pay on this iPad instead".');
     }
     say('pay-status', item.ended ? 'bad' : 'warn', item.ended ? ENDED_TEXT : 'Waiting for the payment...');
+    showRetry(item);
     show('receipt-box', false);
     show('sell-form', false);
     show('pay-screen', true);
@@ -725,6 +735,7 @@
     stopPayPoll();
     clearReturnToken();
     ui.payingId = null;
+    show('retry-box', false);
     show('pay-screen', false);
     renderAll();
     if (entry && entry.payment === 'paid') {
@@ -748,6 +759,7 @@
         paidNow(id);
         return;
       }
+      showRetry(waiting);
       if (waiting.ended) {
         say('pay-status', 'bad', ENDED_TEXT);
       } else if (error) {
@@ -781,6 +793,71 @@
   el('pay-check').onclick = function () { payPoll(true); };
   el('pay-cancel').onclick = function () { if (ui.payingId) { cancelPayment(ui.payingId, 'pay-status'); } };
   el('pay-later').onclick = function () { closePayScreen(); renderAll(); };
+
+  function plainMoney(cents) {
+    var whole = Math.floor(cents / 100);
+    var rest = cents % 100;
+    return String(whole) + (rest ? '.' + (rest < 10 ? '0' : '') + rest : '');
+  }
+
+  /** Puts a sale's items back in the cart (when a new prompt could not be sent), so nothing has to be typed again. */
+  function restoreCart(request, phone) {
+    ui.cart = [];
+    for (var i = 0; i < request.cart.length; i++) {
+      var line = request.cart[i];
+      ui.cart.push(line.productId ? { productId: line.productId, name: line.name, qty: line.quantity } : { productId: null, name: line.name, qty: line.quantity, priceCents: line.unitPriceCents });
+    }
+    el('discount').value = request.discountCents > 0 ? plainMoney(request.discountCents) : '';
+    el('cash-received').value = '';
+    el('paystack-phone').value = phone;
+    setSaleType(request.saleType === 'wholesale' ? 'wholesale' : 'retail');
+    setPayment('paystack');
+  }
+
+  el('retry-button').onclick = function () {
+    if (ui.starting || !ui.payingId) { return; }
+    var phone = el('retry-phone').value.replace(/^\s+|\s+$/g, '');
+    var digits = phone.replace(/[^0-9]/g, '');
+    if (digits.length < 9 || digits.length > 13) {
+      say('pay-status', 'warn', 'Enter the customer\'s M-Pesa number, like 0712 345 678.');
+      return;
+    }
+    var oldId = ui.payingId;
+    ui.starting = true;
+    setBusy('retry-button', true, 'Sending the prompt...');
+    core.retryPrompt(oldId, phone, function (error, result) {
+      ui.starting = false;
+      setBusy('retry-button', false, 'Send the prompt again');
+      if (error) {
+        say('pay-status', 'bad', error.message);
+        return;
+      }
+      if (result.outcome === 'paid') {
+        // The customer had approved it after all: that sale stands, and no second prompt was sent.
+        paidNow(oldId);
+        return;
+      }
+      if (result.outcome === 'started') {
+        renderAll();
+        openPayScreen(result.started.receipt.saleId);
+        sendWaitingSales();
+        return;
+      }
+      // The first sale is cancelled and the new prompt could not be sent: back to the cart with the same items.
+      stopPayPoll();
+      clearReturnToken();
+      ui.payingId = null;
+      show('pay-screen', false);
+      show('retry-box', false);
+      show('sell-form', true);
+      restoreCart(result.request, phone);
+      renderAll();
+      showTab('sell');
+      showView('cart');
+      say('sell-message', 'bad', (/[.!?]$/.test(result.message) ? result.message : result.message + '.') + ' The items are back in the cart.');
+      sendWaitingSales();
+    });
+  };
   // "Pay on this iPad instead" (from the code screen, or to try again): straight to the payment page; the till
   // comes back by itself when it is done.
   el('pay-open').onclick = function () {

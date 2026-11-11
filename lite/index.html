@@ -123,6 +123,11 @@
             <img id="pay-qr" class="qr hidden" alt="Payment code">
             <p id="pay-help">Ask the customer to scan this code with their phone camera, then pay on their phone (M-Pesa or card). This screen updates by itself.</p>
             <div id="pay-status"></div>
+            <div id="retry-box" class="hidden" style="text-align:left">
+              <label for="retry-phone">Customer's M-Pesa number</label>
+              <input id="retry-phone" type="text" inputmode="tel" placeholder="0712 345 678" autocomplete="off">
+              <button id="retry-button" class="big" type="button">Send the prompt again</button>
+            </div>
             <button id="pay-check" class="secondary" type="button">Check now</button>
             <button id="pay-open" class="secondary" type="button">Pay on this iPad instead</button>
             <div>
@@ -228,7 +233,7 @@
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=5"></script>
-  <script src="lite.js?v=5"></script>
+  <script src="lite-core.js?v=6"></script>
+  <script src="lite.js?v=6"></script>
 </body>
 </html>
