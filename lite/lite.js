@@ -1352,6 +1352,58 @@
   window.addEventListener('online', function () { if (core.getStatus().joined) { doSync(false); checkWaitingPayments(); } }, false);
   window.setInterval(checkWaitingPayments, BACKGROUND_PAY_CHECK_MS);
 
+  // ---- a newer version of the till ---------------------------------------------------------------------------
+  // An iPad can keep this page open for days. Every few minutes, and whenever the page comes back to the front or the
+  // internet returns, the page asks the server for a fresh copy of itself and compares it with the copy that is running
+  // (its build label and script versions). When they differ a bar offers "Update now", like the apps do. Nothing is ever
+  // updated by itself in the middle of a sale: the cashier taps it, a sale in progress is put on hold first, and the
+  // sales saved on the iPad are untouched (they live in the browser's storage, not in the page).
+  var UPDATE_CHECK_MS = 5 * 60 * 1000;
+  var runningPage = document.documentElement.outerHTML;
+  var updateChecking = false;
+  var updateDismissed = null;
+  var updateLatestText = '';
+  setText('version-label', window.NexaLiteCore.pageBuild(runningPage) || '');
+
+  function checkForUpdate() {
+    if (updateChecking) { return; }
+    updateChecking = true;
+    xhrHttp({ method: 'GET', url: 'index.html?check=' + new Date().getTime(), headers: {} }, function (error, response) {
+      updateChecking = false;
+      if (error || !response || response.status !== 200) { return; }
+      var newer = window.NexaLiteCore.updateAvailable(runningPage, response.text);
+      var signature = window.NexaLiteCore.pageSignature(response.text);
+      if (newer) { updateLatestText = response.text; }
+      show('update-bar', newer && signature !== updateDismissed);
+      if (!newer) { say('update-message', '', ''); }
+    });
+  }
+
+  el('update-later').onclick = function () {
+    // Quiet until a still newer version comes out; the page is checked again next time it is opened anyway.
+    updateDismissed = window.NexaLiteCore.pageSignature(updateLatestText);
+    show('update-bar', false);
+  };
+
+  el('update-now').onclick = function () {
+    if (ui.starting || ui.payingId) {
+      say('update-message', 'warn', 'Finish or leave the payment first (tap "Start another sale" to keep it waiting), then update.');
+      return;
+    }
+    if (core.currentUser() && ui.cart.length > 0) {
+      if (!window.confirm('Your sale in progress will be put on hold (open it again from Held sales), and the till will restart with the new version. Continue?')) { return; }
+      var kept = core.holdSale('Unfinished sale', currentDraft());
+      if (!kept.ok) { say('update-message', 'bad', kept.message); return; }
+    }
+    window.location.reload();
+  };
+
+  window.setInterval(checkForUpdate, UPDATE_CHECK_MS);
+  window.setTimeout(checkForUpdate, 8000);
+  window.addEventListener('online', checkForUpdate, false);
+  window.addEventListener('pageshow', checkForUpdate, false);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkForUpdate(); } }, false);
+
   // ---- start -------------------------------------------------------------------------------------------------
   // Coming back from paying on this iPad: the cashier who was paying gets their login back (for that one waiting
   // payment only) BEFORE the first screen is chosen, so they land on the payment, not on the login screen.

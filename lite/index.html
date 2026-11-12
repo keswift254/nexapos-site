@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
+  <meta name="lite-build" content="2026-11-13.1">
   <title>NexaPOS Lite</title>
   <style>
     html, body { margin: 0; padding: 0; background: #f4f5fa; color: #14141f; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
@@ -57,6 +58,8 @@
     .waitrow td { padding: 10px 4px; }
     .notice button { margin-top: 6px; }
     button.wide { width: 100%; margin: 10px 0 0; }
+    .updatebar { position: -webkit-sticky; position: sticky; top: 0; z-index: 20; background: #e3f6e8; color: #1c5a2e; border-radius: 10px; padding: 10px 12px; margin: 8px 0; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
+    .updatebar button { margin: 8px 8px 0 0; }
     .heldname { font-size: 18px; font-weight: 800; }
     .heldlist { margin: 6px 0 2px; font-size: 15px; color: #3a3a52; }
     /* The receipt sheet: not on screen; when printing, it is the only thing printed. Its width is the shop's paper width. */
@@ -82,6 +85,12 @@
   <div class="page">
     <noscript><div class="notice bad">NexaPOS Lite needs JavaScript. Turn it on in Settings &gt; Safari.</div></noscript>
     <div id="compat" class="notice bad hidden"></div>
+    <div id="update-bar" class="updatebar hidden">
+      <div><b>A new version of NexaPOS Lite is available.</b></div>
+      <div id="update-message"></div>
+      <button id="update-now" type="button">Update now</button>
+      <button id="update-later" class="secondary" type="button">Later</button>
+    </div>
 
     <section id="screen-setup" class="hidden">
       <h1>NexaPOS Lite</h1>
@@ -270,13 +279,13 @@
       <button id="till-refresh" class="secondary" type="button">Send sales and update shop data</button>
     </section>
 
-    <p class="muted" style="margin-top:26px">NexaPOS Lite</p>
+    <p class="muted" style="margin-top:26px">NexaPOS Lite &middot; version <span id="version-label"></span></p>
   </div>
   <div id="print-receipt"></div>
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=9"></script>
-  <script src="lite.js?v=9"></script>
+  <script src="lite-core.js?v=10"></script>
+  <script src="lite.js?v=10"></script>
 </body>
 </html>

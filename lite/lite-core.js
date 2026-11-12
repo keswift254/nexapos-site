@@ -1299,5 +1299,49 @@
     };
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY };
+  // ---- is there a newer version of the till? -------------------------------------------------------------------
+  /** The build label a page declares in <meta name="lite-build" content="...">, or null when it has none. */
+  function pageBuild(html) {
+    var metas = String(html || '').match(/<meta\b[^>]*>/gi) || [];
+    for (var i = 0; i < metas.length; i++) {
+      if (/\bname\s*=\s*["']lite-build["']/i.test(metas[i])) {
+        var found = /\bcontent\s*=\s*["']([^"']*)["']/i.exec(metas[i]);
+        return found ? found[1] : null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * What identifies one released version of the till page: its build label plus the ?v= number on each script. Read the
+   * same way from the page that is running and from the page on the server. null when the text is not a till page (an
+   * error page, a login wall) - then nothing is claimed about it.
+   */
+  function pageSignature(html) {
+    var build = pageBuild(html);
+    if (build === null) {
+      return null;
+    }
+    var tags = String(html).match(/<script\b[^>]*>/gi) || [];
+    var parts = [];
+    for (var i = 0; i < tags.length; i++) {
+      var src = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(tags[i]);
+      if (src) {
+        var pieces = /^([^?#]*)(?:\?v=([^&#]*))?/.exec(src[1]);
+        var file = pieces[1].split('/').pop();
+        parts.push(file + '=' + (pieces[2] || ''));
+      }
+    }
+    parts.sort();
+    return build + '|' + parts.join('|');
+  }
+
+  /** True only when both pages are till pages and they are different versions. */
+  function updateAvailable(runningHtml, latestHtml) {
+    var running = pageSignature(runningHtml);
+    var latest = pageSignature(latestHtml);
+    return running !== null && latest !== null && running !== latest;
+  }
+
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable };
 }));
