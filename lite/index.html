@@ -59,6 +59,23 @@
     button.wide { width: 100%; margin: 10px 0 0; }
     .heldname { font-size: 18px; font-weight: 800; }
     .heldlist { margin: 6px 0 2px; font-size: 15px; color: #3a3a52; }
+    /* The receipt sheet: not on screen; when printing, it is the only thing printed. Its width is the shop's paper width. */
+    #print-receipt { display: none; }
+    @page { margin: 8mm; }
+    @media print {
+      html, body { background: #fff !important; color: #000 !important; }
+      .page { display: none !important; }
+      #print-receipt { display: block !important; margin: 0; padding: 0; font-family: Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.35; color: #000; }
+      #print-receipt .pr-center { text-align: center; }
+      #print-receipt .pr-shop { font-size: 16px; font-weight: 800; text-transform: uppercase; }
+      #print-receipt .pr-title { font-weight: 800; margin: 6px 0 2px; }
+      #print-receipt .pr-rule { border-top: 1px dashed #000; margin: 6px 0; height: 0; }
+      #print-receipt .pr-row { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; }
+      #print-receipt .pr-row span { min-width: 0; word-wrap: break-word; }
+      #print-receipt .pr-row span + span { text-align: right; padding-left: 8px; white-space: nowrap; }
+      #print-receipt .pr-grand { font-size: 15px; font-weight: 800; }
+      #print-receipt .pr-item { font-weight: 700; }
+    }
   </style>
 </head>
 <body>
@@ -250,10 +267,11 @@
 
     <p class="muted" style="margin-top:26px">NexaPOS Lite</p>
   </div>
+  <div id="print-receipt"></div>
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=7"></script>
-  <script src="lite.js?v=7"></script>
+  <script src="lite-core.js?v=8"></script>
+  <script src="lite.js?v=8"></script>
 </body>
 </html>

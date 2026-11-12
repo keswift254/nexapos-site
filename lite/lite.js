@@ -659,6 +659,48 @@
     return { kind: 'warn', text: '' };
   }
 
+  // ---- printing a receipt (AirPrint from the browser's own print sheet) ----------------------------------------
+  /** Draws the receipt sheet (the till code decides what is on it) and opens the print sheet. */
+  function printReceipt(receipt, reprint) {
+    if (typeof window.print !== 'function') {
+      window.alert('This browser cannot print.');
+      return;
+    }
+    var sheet = core.receiptSheet(receipt, reprint);
+    var box = el('print-receipt');
+    box.innerHTML = '';
+    box.style.width = sheet.widthMm + 'mm';
+    function line(className, text) { box.appendChild(make('div', className, text)); }
+    function rule() { box.appendChild(make('div', 'pr-rule')); }
+    function pair(className, left, right) {
+      var row = make('div', 'pr-row' + (className ? ' ' + className : ''));
+      row.appendChild(make('span', '', left));
+      row.appendChild(make('span', '', right));
+      box.appendChild(row);
+    }
+    var i;
+    line('pr-center pr-shop', sheet.shopName);
+    if (sheet.address) { line('pr-center', sheet.address); }
+    if (sheet.phone) { line('pr-center', sheet.phone); }
+    line('pr-center pr-title', sheet.title);
+    rule();
+    for (i = 0; i < sheet.meta.length; i++) { pair('', sheet.meta[i].label, sheet.meta[i].value); }
+    rule();
+    for (i = 0; i < sheet.lines.length; i++) {
+      line('pr-item', sheet.lines[i].name);
+      pair('', sheet.lines[i].detail, sheet.lines[i].total);
+    }
+    rule();
+    for (i = 0; i < sheet.totals.length; i++) { pair(sheet.totals[i].grand ? 'pr-grand' : '', sheet.totals[i].label, sheet.totals[i].value); }
+    rule();
+    for (i = 0; i < sheet.payment.length; i++) { pair('', sheet.payment[i].label, sheet.payment[i].value); }
+    if (sheet.footer) {
+      rule();
+      line('pr-center', sheet.footer);
+    }
+    window.print();
+  }
+
   function showReceipt(receipt) {
     var box = el('receipt-box');
     box.innerHTML = '';
@@ -691,10 +733,14 @@
     var statusBox = make('div');
     statusBox.id = 'receipt-status';
     card.appendChild(statusBox);
+    var printIt = make('button', 'secondary', 'Print receipt');
+    printIt.type = 'button';
+    printIt.onclick = function () { printReceipt(receipt, false); };
     var next = make('button', 'big', 'New sale');
     next.type = 'button';
     next.onclick = function () { ui.receiptId = null; show('receipt-box', false); show('sell-form', true); };
     card.appendChild(next);
+    card.appendChild(printIt);
     box.appendChild(card);
     show('receipt-box', true);
     show('sell-form', false);
@@ -1105,6 +1151,14 @@
         if (entry.payment === 'awaiting') { label = ['waiting', 'Awaiting payment']; }
         else if (entry.payment === 'cancelled' && entry.status !== 'rejected') { label = ['cancel', 'Cancelled']; }
         state.appendChild(make('span', 'badge ' + label[0], label[1]));
+        if ((entry.status === 'queued' || entry.status === 'sent') && entry.payment !== 'awaiting' && entry.payment !== 'cancelled') {
+          var printAgain = make('button', 'small secondary', 'Print');
+          printAgain.type = 'button';
+          printAgain.style.marginTop = '6px';
+          printAgain.onclick = function () { printReceipt(entry.receipt, true); };
+          state.appendChild(make('div'));
+          state.appendChild(printAgain);
+        }
         if (entry.status === 'rejected' && user && user.roleName === 'Admin') {
           var remove = make('button', 'small secondary', 'Remove');
           remove.type = 'button';
@@ -1232,6 +1286,7 @@
     // Logging out (or the idle timer) with a sale in progress puts it on hold instead of losing it.
     if (core.currentUser() && ui.cart.length > 0) { core.holdSale('Unfinished sale', currentDraft()); }
     resetSale();
+    el('print-receipt').innerHTML = '';
     core.logout();
     ui.receiptId = null;
     clearReturnToken();

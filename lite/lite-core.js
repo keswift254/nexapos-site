@@ -525,6 +525,7 @@
       if (!built.ok) {
         return built;
       }
+      built.receipt.cashierName = session.name;
       commitBuilt(built, null);
       return { ok: true, receipt: built.receipt };
     }
@@ -562,6 +563,77 @@
       return business && business.currency ? String(business.currency).toUpperCase() : 'KES';
     }
 
+    // ---- printing a receipt -------------------------------------------------------------------------------------
+    /** The shop's details for the top and bottom of a receipt (from the shop data the iPad already has). */
+    function shopInfo() {
+      var business = state.catalog && state.catalog.business ? state.catalog.business : {};
+      var width = Number(business.paperWidthMm);
+      return {
+        name: business.businessName ? String(business.businessName) : 'Shop',
+        address: business.address ? String(business.address) : '',
+        phone: business.phone ? String(business.phone) : '',
+        footer: business.receiptFooter ? String(business.receiptFooter) : '',
+        currency: currencyCode(),
+        paperWidthMm: width >= 40 && width <= 120 ? width : 58
+      };
+    }
+
+    function two(n) {
+      return (n < 10 ? '0' : '') + n;
+    }
+
+    /** What goes on the printed receipt, as plain data (the page only has to draw it). A reprint says so at the top. */
+    function receiptSheet(receipt, reprint) {
+      var shop = shopInfo();
+      var d = new Date(receipt.createdAt);
+      var meta = [
+        { label: 'Receipt #', value: receipt.saleNumber },
+        { label: 'Date', value: two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) }
+      ];
+      if (receipt.cashierName) {
+        meta.push({ label: 'Cashier', value: receipt.cashierName });
+      }
+      if (receipt.customerName && receipt.customerName !== 'Walk-in customer') {
+        meta.push({ label: 'Customer', value: receipt.customerName });
+      }
+      var lines = [];
+      for (var i = 0; i < receipt.lines.length; i++) {
+        var line = receipt.lines[i];
+        lines.push({ name: line.name, detail: line.quantity + ' x ' + formatCents(line.unitPriceCents), total: formatCents(line.lineTotalCents) });
+      }
+      var totals = [];
+      if (receipt.discountCents > 0) {
+        totals.push({ label: 'Subtotal', value: formatCents(receipt.subtotalCents) });
+        totals.push({ label: 'Discount', value: '-' + formatCents(receipt.discountCents) });
+      }
+      totals.push({ label: 'TOTAL (' + shop.currency + ')', value: formatCents(receipt.totalCents), grand: true });
+      var payment = [];
+      payment.push({ label: 'Paid by', value: receipt.paymentMethod === 'cash' ? 'Cash' : (receipt.paymentMethod === 'paystack' ? 'Online (Paystack)' : 'M-Pesa') });
+      if (receipt.paymentMethod !== 'cash' && receipt.paymentMethod !== 'paystack' && receipt.referenceNote) {
+        payment.push({ label: 'Reference', value: receipt.referenceNote });
+      }
+      if (receipt.paymentMethod === 'cash' && receipt.cashReceivedCents !== null && receipt.cashReceivedCents !== undefined) {
+        payment.push({ label: 'Cash received', value: formatCents(receipt.cashReceivedCents) });
+        if (receipt.changeDueCents >= 0) {
+          payment.push({ label: 'Change', value: formatCents(receipt.changeDueCents) });
+        } else {
+          payment.push({ label: 'Balance owed', value: formatCents(-receipt.changeDueCents) });
+        }
+      }
+      return {
+        widthMm: shop.paperWidthMm,
+        shopName: shop.name,
+        address: shop.address,
+        phone: shop.phone,
+        footer: shop.footer,
+        title: reprint ? 'RECEIPT - REPRINT' : 'RECEIPT',
+        meta: meta,
+        lines: lines,
+        totals: totals,
+        payment: payment
+      };
+    }
+
     function addNotice(kind, text) {
       state.notices.unshift({ id: random(6), kind: kind, text: text, at: now() });
       if (state.notices.length > 20) {
@@ -597,12 +669,15 @@
       }
       var saleNumber = options.sale.newSaleNumber(state.device.id, now(), random);
       var cashierId = session.id; // the cashier may log out (idle) while Paystack answers; the sale is still theirs
+      var cashierName = session.name;
       function buildNow() {
-        return options.sale.build({
+        var result = options.sale.build({
           cart: request.cart, products: productMap(), saleType: request.saleType, paymentMethod: 'paystack',
           discountCents: request.discountCents, customerName: request.customerName, customerPhone: request.customerPhone,
           userId: cashierId, deviceId: state.device.id, now: now, nextRev: state.nextRev, randomHex: random, saleNumber: saleNumber
         });
+        if (result.ok) { result.receipt.cashierName = cashierName; }
+        return result;
       }
       var built = buildNow();
       if (!built.ok) {
@@ -1163,6 +1238,8 @@
       cancelOnline: cancelOnline,
       retryPrompt: retryPrompt,
       holdSale: holdSale,
+      shopInfo: shopInfo,
+      receiptSheet: receiptSheet,
       heldList: heldList,
       resumeHeld: resumeHeld,
       discardHeld: discardHeld,
