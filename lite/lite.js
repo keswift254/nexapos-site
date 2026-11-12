@@ -1133,7 +1133,30 @@
   }
 
   // ---- the Sales tab -----------------------------------------------------------------------------------------
+  /** The "Today on this iPad" card: what was sold since midnight, split by how it was paid. */
+  function renderToday() {
+    var s = core.todaySummary();
+    var info = core.shopInfo();
+    var body = el('today-rows');
+    body.innerHTML = '';
+    function row(label, value, className) {
+      var tr = make('tr', className || '');
+      tr.appendChild(make('td', '', label));
+      tr.appendChild(make('td', 'num', value));
+      body.appendChild(tr);
+    }
+    row('Sales', s.sales + (s.sales === 1 ? ' sale' : ' sales') + ' \u00b7 ' + s.items + (s.items === 1 ? ' item' : ' items'));
+    row('Cash', core.formatCents(s.cashCents));
+    row('M-Pesa', core.formatCents(s.mpesaCents));
+    row('Online (Paystack)', core.formatCents(s.onlineCents));
+    row('Total (' + info.currency + ')', core.formatCents(s.totalCents), 'grand');
+    setText('today-note', s.complete
+      ? 'Only sales made on this iPad since midnight. Other devices are not included.'
+      : 'This iPad keeps only its latest ' + 100 + ' sales, so today\'s figures may be missing some. Only sales made on this iPad are included.');
+  }
+
   function renderSales() {
+    renderToday();
     var body = el('sales-rows');
     body.innerHTML = '';
     var list = core.history();

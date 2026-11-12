@@ -563,6 +563,46 @@
       return business && business.currency ? String(business.currency).toUpperCase() : 'KES';
     }
 
+    // ---- today's totals on this iPad ----------------------------------------------------------------------------
+    var HISTORY_LIMIT = 100;
+
+    /**
+     * What this iPad sold today (since midnight, the iPad's own clock), from the sales it remembers: finished sales only -
+     * an online payment still waiting, a cancelled one, and sales the shop refused or the owner removed are left out.
+     * complete is false when the iPad may already have forgotten some of today's sales (it keeps the latest 100).
+     */
+    function todaySummary() {
+      var start = new Date(now());
+      start.setHours(0, 0, 0, 0);
+      var from = start.getTime();
+      var out = { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, complete: true };
+      for (var i = 0; i < state.history.length; i++) {
+        var entry = state.history[i];
+        var receipt = entry.receipt;
+        if (receipt.createdAt < from) {
+          continue;
+        }
+        if ((entry.status !== 'queued' && entry.status !== 'sent') || entry.payment === 'awaiting' || entry.payment === 'cancelled') {
+          continue;
+        }
+        out.sales += 1;
+        out.totalCents += receipt.totalCents;
+        for (var j = 0; j < receipt.lines.length; j++) {
+          out.items += receipt.lines[j].quantity;
+        }
+        if (receipt.paymentMethod === 'cash') {
+          out.cashCents += receipt.totalCents;
+        } else if (receipt.paymentMethod === 'paystack') {
+          out.onlineCents += receipt.totalCents;
+        } else {
+          out.mpesaCents += receipt.totalCents;
+        }
+      }
+      var oldest = state.history.length > 0 ? state.history[state.history.length - 1].receipt.createdAt : 0;
+      out.complete = state.history.length < HISTORY_LIMIT || oldest < from;
+      return out;
+    }
+
     // ---- printing a receipt -------------------------------------------------------------------------------------
     /** The shop's details for the top and bottom of a receipt (from the shop data the iPad already has). */
     function shopInfo() {
@@ -1239,6 +1279,7 @@
       retryPrompt: retryPrompt,
       holdSale: holdSale,
       shopInfo: shopInfo,
+      todaySummary: todaySummary,
       receiptSheet: receiptSheet,
       heldList: heldList,
       resumeHeld: resumeHeld,
