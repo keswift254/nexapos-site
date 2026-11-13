@@ -4,80 +4,132 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-13.2">
+  <meta name="lite-build" content="2026-11-13.3">
   <title>NexaPOS Lite</title>
   <style>
-    html, body { margin: 0; padding: 0; background: #f4f5fa; color: #14141f; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
-    .page { max-width: 860px; margin: 0 auto; padding: 14px; }
-    h1 { font-size: 22px; margin: 6px 0 2px; }
-    h2 { font-size: 18px; margin: 0 0 8px; }
+    /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
+    :root {
+      --primary: #515B92; --on-primary: #FFFFFF; --primary-container: #DEE0FF; --on-primary-container: #394379;
+      --secondary-container: #E0E1F9; --on-secondary-container: #434659;
+      --surface: #FBF8FF; --on-surface: #1B1B21; --on-surface-variant: #46464F;
+      --surface-low: #F5F2FA; --surface-container: #EFEDF4; --surface-high: #E9E7EF; --surface-highest: #E4E1E9;
+      --outline: #767680; --outline-variant: #C7C5D0;
+      --error: #BA1A1A; --error-container: #FFDAD6; --on-error-container: #93000A;
+    }
+    html, body { margin: 0; padding: 0; background: #FBF8FF; background: var(--surface); color: #1B1B21; color: var(--on-surface); font-family: Roboto, -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+    .page { max-width: 860px; margin: 0 auto; padding: 12px 16px 24px; }
+    h1 { font-size: 22px; line-height: 28px; font-weight: 400; margin: 6px 0 2px; }
+    h2 { font-size: 16px; line-height: 24px; font-weight: 500; margin: 0 0 8px; letter-spacing: .15px; }
     p { line-height: 1.45; margin: 8px 0; }
-    .muted { color: #5a5a70; font-size: 14px; }
-    .card { background: #fff; border-radius: 12px; padding: 14px; margin: 10px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    label { display: block; font-weight: 600; margin: 10px 0 4px; }
-    input, select { width: 100%; box-sizing: border-box; font-size: 18px; padding: 11px; border: 1px solid #b9bcd0; border-radius: 10px; background: #fff; -webkit-appearance: none; }
-    button { font-size: 18px; font-weight: 600; padding: 12px 18px; border: 0; border-radius: 10px; background: #4f46e5; color: #fff; margin: 10px 8px 0 0; -webkit-appearance: none; }
-    button.secondary { background: #e4e5f2; color: #2b2b44; }
-    button.small { font-size: 16px; padding: 8px 14px; margin: 0 6px 0 0; }
-    button.big { width: 100%; font-size: 20px; padding: 15px; margin: 12px 0 0; background: #15803d; }
-    button[disabled] { opacity: .45; }
-    .notice { border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 15px; }
-    .notice.bad { background: #fde8e8; color: #8a1c1c; }
-    .notice.warn { background: #fff4d6; color: #6b4b00; }
-    .notice.ok { background: #e3f6e8; color: #1c5a2e; }
+    .muted { color: #46464F; color: var(--on-surface-variant); font-size: 14px; }
+    .card { background: #F5F2FA; background: var(--surface-low); border-radius: 12px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 1px 3px 1px rgba(0,0,0,.1); }
+    label { display: block; font-size: 12px; font-weight: 500; letter-spacing: .4px; color: #46464F; color: var(--on-surface-variant); margin: 14px 0 4px; }
+    input, select { width: 100%; box-sizing: border-box; font-size: 16px; font-family: inherit; padding: 13px 14px; border: 1px solid #767680; border: 1px solid var(--outline); border-radius: 4px; background: #fff; color: #1B1B21; -webkit-appearance: none; appearance: none; }
+    input:focus, select:focus { outline: none; border-color: #515B92; border-color: var(--primary); box-shadow: 0 0 0 1px #515B92; box-shadow: 0 0 0 1px var(--primary); }
+    select { padding-right: 36px; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'><path fill='%2346464F' d='M7 10l5 5 5-5z'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; }
+    button { font-family: inherit; font-size: 15px; font-weight: 500; letter-spacing: .1px; line-height: 1.2; min-height: 44px; padding: 0 24px; border: 0; border-radius: 22px; background: #515B92; background: var(--primary); color: #fff; margin: 10px 8px 0 0; -webkit-appearance: none; }
+    button.secondary { background: #E0E1F9; background: var(--secondary-container); color: #434659; color: var(--on-secondary-container); }
+    button.outlined { background: transparent; color: #515B92; color: var(--primary); border: 1px solid #767680; border: 1px solid var(--outline); }
+    button.small { font-size: 14px; min-height: 36px; padding: 0 16px; border-radius: 18px; margin: 0 6px 0 0; }
+    button.big { width: 100%; font-size: 16px; min-height: 52px; border-radius: 26px; margin: 12px 0 0; }
+    button.wide { width: 100%; margin: 10px 0 0; }
+    button[disabled] { opacity: .38; }
+    .notice { border-radius: 12px; padding: 10px 14px; margin: 8px 0; font-size: 14px; line-height: 1.4; }
+    .notice.bad { background: #FFDAD6; background: var(--error-container); color: #93000A; color: var(--on-error-container); }
+    .notice.warn { background: #FFF1D6; color: #5E4200; }
+    .notice.ok { background: #DEE0FF; background: var(--primary-container); color: #394379; color: var(--on-primary-container); }
     .hidden { display: none !important; }
     .topbar { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; }
-    .tabs { display: -webkit-flex; display: flex; margin: 10px 0 0; border-bottom: 2px solid #dcdcec; }
-    .tab { -webkit-flex: 1; flex: 1; text-align: center; padding: 12px 4px; font-size: 17px; font-weight: 700; color: #5a5a70; border-bottom: 4px solid transparent; margin-bottom: -2px; }
-    .tab.on { color: #4f46e5; border-bottom-color: #4f46e5; }
+    .tabs { display: -webkit-flex; display: flex; margin: 8px 0 0; border-bottom: 1px solid #C7C5D0; border-bottom: 1px solid var(--outline-variant); }
+    .tab { -webkit-flex: 1; flex: 1; text-align: center; padding: 14px 2px 12px; font-size: 13px; font-weight: 500; letter-spacing: .1px; color: #46464F; color: var(--on-surface-variant); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+    .tab.on { color: #515B92; color: var(--primary); border-bottom-color: #515B92; border-bottom-color: var(--primary); }
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; font-size: 13px; color: #5a5a70; padding: 6px 4px; border-bottom: 1px solid #dcdcec; }
-    td { padding: 8px 4px; border-bottom: 1px solid #ececf6; vertical-align: middle; }
+    th { text-align: left; font-size: 12px; font-weight: 500; color: #46464F; color: var(--on-surface-variant); padding: 6px 4px; border-bottom: 1px solid #C7C5D0; border-bottom: 1px solid var(--outline-variant); }
+    td { padding: 9px 4px; border-bottom: 1px solid #E4E1E9; border-bottom: 1px solid var(--surface-highest); vertical-align: middle; }
     td.num, th.num { text-align: right; white-space: nowrap; }
-    .sku { color: #5a5a70; font-size: 13px; }
-    .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
-    .badge.low { background: #fff0c2; color: #6b4b00; }
-    .badge.out { background: #fbd5d5; color: #8a1c1c; }
-    .badge.sent { background: #d9f2e0; color: #1c5a2e; }
-    .badge.waiting { background: #fff0c2; color: #6b4b00; }
-    .badge.lost { background: #fbd5d5; color: #8a1c1c; }
-    .badge.cancel { background: #e4e5f2; color: #2b2b44; }
-    .seg { display: -webkit-flex; display: flex; margin: 6px 0; }
-    .seg button { -webkit-flex: 1; flex: 1; margin: 0 6px 0 0; background: #e4e5f2; color: #2b2b44; }
-    .seg button.on { background: #4f46e5; color: #fff; }
+    .sku { color: #46464F; color: var(--on-surface-variant); font-size: 12px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+    .badge.low { background: #FFF0C2; color: #5E4200; }
+    .badge.out { background: #FFDAD6; color: #93000A; }
+    .badge.sent { background: #E6F4EA; color: #1E6B34; }
+    .badge.waiting { background: #FFF0C2; color: #5E4200; }
+    .badge.lost { background: #FFDAD6; color: #93000A; }
+    .badge.cancel { background: #E4E1E9; color: #46464F; }
+    .seg { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: 6px 0 0; }
+    .seg button { min-height: 36px; padding: 0 16px; margin: 0 8px 8px 0; border-radius: 8px; font-size: 14px; background: transparent; color: #46464F; color: var(--on-surface-variant); border: 1px solid #C7C5D0; border: 1px solid var(--outline-variant); }
+    .seg button.on { background: #E0E1F9; background: var(--secondary-container); color: #434659; color: var(--on-secondary-container); border-color: transparent; }
+    .seg button.on:before { content: '\2713\00a0'; }
     .row2 { display: -webkit-flex; display: flex; }
     .row2 > div { -webkit-flex: 1; flex: 1; margin-right: 8px; }
-    .totals td { border: 0; padding: 4px; font-size: 17px; }
-    .totals tr.grand td { font-size: 22px; font-weight: 800; border-top: 2px solid #14141f; }
-    .qty { display: inline-block; min-width: 28px; text-align: center; font-weight: 700; font-size: 18px; }
-    .receipt { background: #fff; border: 2px dashed #b9bcd0; border-radius: 12px; padding: 16px; }
-    .receipt .big { font-size: 28px; font-weight: 800; }
+    .totals td { border: 0; padding: 4px; font-size: 16px; }
+    .totals tr.grand td { font-size: 20px; font-weight: 700; border-top: 1px solid #C7C5D0; }
+    .qty { display: inline-block; min-width: 28px; text-align: center; font-weight: 700; font-size: 16px; }
     .qr { display: block; margin: 12px auto; max-width: 100%; height: auto; background: #fff; padding: 8px; border-radius: 8px; }
     .paycard { text-align: center; }
-    .paycard .big { font-size: 30px; font-weight: 800; margin: 4px 0; }
+    .paycard .big { font-size: 30px; font-weight: 700; margin: 4px 0; }
     .waitrow td { padding: 10px 4px; }
     .notice button { margin-top: 6px; }
-    button.wide { width: 100%; margin: 10px 0 0; }
-    .updatebar { position: -webkit-sticky; position: sticky; top: 0; z-index: 20; background: #e3f6e8; color: #1c5a2e; border-radius: 10px; padding: 10px 12px; margin: 8px 0; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
+    .heldname { font-size: 16px; font-weight: 700; }
+    .heldlist { margin: 6px 0 2px; font-size: 14px; color: #46464F; color: var(--on-surface-variant); }
+    .updatebar { position: -webkit-sticky; position: sticky; top: 0; z-index: 20; background: #DEE0FF; background: var(--primary-container); color: #394379; color: var(--on-primary-container); border-radius: 12px; padding: 12px 14px; margin: 8px 0; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
     .updatebar button { margin: 8px 8px 0 0; }
-    .heldname { font-size: 18px; font-weight: 800; }
-    .heldlist { margin: 6px 0 2px; font-size: 15px; color: #3a3a52; }
-    /* The receipt sheet: not on screen; when printing, it is the only thing printed. Its width is the shop's paper width. */
+    /* Dashboard */
+    .statgrid { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: 4px -6px 0; }
+    .stat { display: -webkit-flex; display: flex; box-sizing: border-box; width: 50%; padding: 6px; }
+    .stat .card { -webkit-flex: 1; flex: 1; margin: 0; min-width: 0; box-sizing: border-box; }
+    .stat.tap .card { cursor: pointer; }
+    .statlabel { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; font-size: 12px; font-weight: 500; letter-spacing: .4px; color: #46464F; color: var(--on-surface-variant); min-height: 28px; }
+    .statvalue { font-size: 21px; line-height: 28px; font-weight: 700; margin: 4px 0 2px; word-wrap: break-word; }
+    .statsub { font-size: 12px; color: #46464F; color: var(--on-surface-variant); }
+    .pct { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 8px; }
+    .pct.up { background: #E6F4EA; color: #1E6B34; }
+    .pct.down { background: #FDECEA; color: #B3261E; }
+    .pct.flat { background: #E4E1E9; color: #46464F; }
+    button.eye { margin: 0; min-height: 32px; width: 32px; padding: 0; border-radius: 16px; background: transparent; color: #46464F; color: var(--on-surface-variant); -webkit-flex: none; flex: none; }
+    .legend { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; font-size: 12px; color: #46464F; color: var(--on-surface-variant); margin: 2px 0 6px; }
+    .legend span { margin-right: 14px; white-space: nowrap; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 5px; }
+    .chart { display: block; width: 100%; max-width: 600px; height: auto; margin: 0 auto; }
+    .homeactions { text-align: center; margin: 14px 0 6px; }
+    .homeactions button { margin: 10px 6px 0; }
+    /* Reports */
+    .metrics { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: 6px -6px 0; }
+    .metric { box-sizing: border-box; width: 50%; padding: 6px; display: -webkit-flex; display: flex; }
+    .metric .card { -webkit-flex: 1; flex: 1; margin: 0; padding: 12px 14px; min-width: 0; }
+    .metric .l { font-size: 12px; font-weight: 500; color: #46464F; color: var(--on-surface-variant); }
+    .metric .v { font-size: 16px; font-weight: 700; margin-top: 4px; word-wrap: break-word; }
+    .rowline { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #E4E1E9; border-bottom: 1px solid var(--surface-highest); }
+    .rowline .r { text-align: right; white-space: nowrap; padding-left: 10px; font-weight: 500; }
+    .rowline .a { min-width: 0; word-wrap: break-word; }
+    .grandrow { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; padding: 6px 0; font-size: 16px; }
+    .grandrow.bold { font-weight: 700; font-size: 18px; }
+    .reporthead { margin: 10px 0 0; }
+    .reporthead .period { color: #46464F; color: var(--on-surface-variant); font-size: 13px; font-weight: 500; letter-spacing: .5px; }
+    /* The receipt, drawn like the apps' (monospace paper), on screen and when printing */
+    .paper { background: #fff; color: #000; border: 1px solid #C7C5D0; border-radius: 4px; padding: 20px 16px; max-width: 380px; margin: 12px auto; font-family: Menlo, 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.4; }
+    .paper .pp-center { text-align: center; }
+    .paper .pp-shop { font-size: 24px; line-height: 1.2; font-weight: 700; text-transform: uppercase; word-wrap: break-word; }
+    .paper .pp-solid { border-top: 1px solid #000; margin: 10px 0; height: 0; }
+    .paper .pp-dash { border-top: 1px dashed #000; margin: 10px 0; height: 0; }
+    .paper .pp-row { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; }
+    .paper .pp-row span { min-width: 0; word-wrap: break-word; }
+    .paper .pp-row span + span { text-align: right; padding-left: 8px; white-space: nowrap; }
+    .paper .pp-total { font-size: 20px; font-weight: 700; text-transform: uppercase; }
+    .paper .pp-bold { font-weight: 700; }
+    .paper .pp-italic { font-style: italic; }
+    .paper .pp-reprint { text-align: center; font-weight: 700; border: 1px solid #000; padding: 2px 0; margin-bottom: 10px; }
+    .paper .pp-barcode { display: block; margin: 14px auto 0; max-width: 100%; height: auto; }
+    .paper .pp-digits { text-align: center; font-size: 12px; margin-top: 2px; }
+    /* The sheet that is printed: not on screen; when printing, it is the only thing printed. Its width is the shop's paper width. */
     #print-receipt { display: none; }
     @page { margin: 8mm; }
     @media print {
       html, body { background: #fff !important; color: #000 !important; }
       .page { display: none !important; }
-      #print-receipt { display: block !important; margin: 0; padding: 0; font-family: Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.35; color: #000; }
-      #print-receipt .pr-center { text-align: center; }
-      #print-receipt .pr-shop { font-size: 16px; font-weight: 800; text-transform: uppercase; }
-      #print-receipt .pr-title { font-weight: 800; margin: 6px 0 2px; }
-      #print-receipt .pr-rule { border-top: 1px dashed #000; margin: 6px 0; height: 0; }
-      #print-receipt .pr-row { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; }
-      #print-receipt .pr-row span { min-width: 0; word-wrap: break-word; }
-      #print-receipt .pr-row span + span { text-align: right; padding-left: 8px; white-space: nowrap; }
-      #print-receipt .pr-grand { font-size: 15px; font-weight: 800; }
-      #print-receipt .pr-item { font-weight: 700; }
+      #print-receipt { display: block !important; }
+      #print-receipt.paper { border: 0; border-radius: 0; padding: 0; margin: 0; font-size: 12px; max-width: none; }
+      #print-receipt .pp-shop { font-size: 18px; }
+      #print-receipt .pp-total { font-size: 16px; }
     }
   </style>
 </head>
@@ -136,13 +188,50 @@
       <div id="till-notices"></div>
       <div id="till-online"></div>
       <div class="tabs">
-        <div class="tab on" id="tab-sell">Sell</div>
-        <div class="tab" id="tab-products">Products</div>
+        <div class="tab on" id="tab-home">Dashboard</div>
+        <div class="tab" id="tab-sell">New Sale</div>
+        <div class="tab" id="tab-products">Inventory</div>
+        <div class="tab" id="tab-reports">Reports</div>
         <div class="tab" id="tab-sales">Sales</div>
       </div>
 
+      <!-- DASHBOARD: the apps' home screen, for the whole shop -->
+      <div id="panel-home">
+        <div id="home-message"></div>
+        <div class="statgrid">
+          <div class="stat"><div class="card">
+            <div class="statlabel"><span>Sales Today</span><button class="eye" id="eye-sales" type="button" aria-label="Hide or show the figures"></button></div>
+            <div class="statvalue" id="stat-sales">...</div><div class="statsub" id="stat-sales-sub"></div><div id="stat-sales-pct"></div>
+          </div></div>
+          <div class="stat"><div class="card">
+            <div class="statlabel"><span>Net Profit Today</span><button class="eye" id="eye-profit" type="button" aria-label="Hide or show the figures"></button></div>
+            <div class="statvalue" id="stat-profit">...</div><div class="statsub" id="stat-profit-sub"></div><div id="stat-profit-pct"></div>
+          </div></div>
+          <div class="stat tap" id="stat-low-card"><div class="card">
+            <div class="statlabel"><span>Low Stock</span></div>
+            <div class="statvalue" id="stat-low">...</div><div class="statsub" id="stat-low-sub"></div>
+          </div></div>
+          <div class="stat"><div class="card">
+            <div class="statlabel"><span>Stock Value</span><button class="eye" id="eye-stock" type="button" aria-label="Hide or show the figures"></button></div>
+            <div class="statvalue" id="stat-stock">...</div><div class="statsub">at cost price</div>
+          </div></div>
+        </div>
+        <div class="card">
+          <h2>Last 7 Days</h2>
+          <div class="legend"><span><i style="background:#515B92"></i>Sales</span><span><i style="background:#F44336"></i>Expenses</span><span><i style="background:#4CAF50"></i>Net Profit</span></div>
+          <div id="trend-chart"></div>
+        </div>
+        <div class="homeactions">
+          <button id="home-newsale" class="big" type="button">New Sale</button>
+          <button id="home-inventory" class="secondary" type="button">Inventory</button>
+          <button id="home-reports" class="secondary" type="button">Reports</button>
+        </div>
+        <p class="muted" id="home-updated" style="text-align:center"></p>
+        <div style="text-align:center"><button id="home-refresh" class="outlined small" type="button">Refresh</button></div>
+      </div>
+
       <!-- SELL -->
-      <div id="panel-sell">
+      <div id="panel-sell" class="hidden">
         <div id="receipt-box" class="hidden"></div>
         <div id="pay-screen" class="hidden">
           <div class="card paycard">
@@ -245,6 +334,7 @@
 
       <!-- PRODUCTS -->
       <div id="panel-products" class="hidden">
+        <div id="product-note"></div>
         <div class="card">
           <label for="search" style="margin-top:0">Search</label>
           <input id="search" type="text" placeholder="Name, code or barcode" autocapitalize="none" autocorrect="off" autocomplete="off">
@@ -258,6 +348,24 @@
           </table>
           <p class="muted" id="product-count"></p>
         </div>
+      </div>
+
+      <!-- REPORTS: the apps' Reports screen, for the whole shop -->
+      <div id="panel-reports" class="hidden">
+        <div class="card">
+          <div class="seg" id="report-modes">
+            <button type="button" id="rm-day" class="on">Daily Sales</button>
+            <button type="button" id="rm-month">Monthly Sales</button>
+            <button type="button" id="rm-expenses">Expenses</button>
+            <button type="button" id="rm-range">Selected Period</button>
+          </div>
+          <div id="rf-date"><label for="report-date">Date</label><input id="report-date" type="date"></div>
+          <div id="rf-month" class="hidden"><div class="row2"><div><label for="report-month">Month</label><select id="report-month"></select></div><div><label for="report-year">Year</label><select id="report-year"></select></div></div></div>
+          <div id="rf-range" class="hidden"><div class="row2"><div><label for="report-since">From</label><input id="report-since" type="date"></div><div><label for="report-until">To</label><input id="report-until" type="date"></div></div></div>
+          <div id="report-message"></div>
+          <button id="report-view" class="big" type="button">View Report</button>
+        </div>
+        <div id="report-result"></div>
       </div>
 
       <!-- SALES -->
@@ -285,7 +393,8 @@
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=10"></script>
-  <script src="lite.js?v=10"></script>
+  <script src="lite-barcode.js?v=1"></script>
+  <script src="lite-core.js?v=11"></script>
+  <script src="lite.js?v=11"></script>
 </body>
 </html>

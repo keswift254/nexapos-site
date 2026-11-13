@@ -603,6 +603,137 @@
       return out;
     }
 
+    // ---- the shop's reports --------------------------------------------------------------------------------------
+    function whole(value) {
+      return typeof value === 'number' && isFinite(value) && Math.floor(value) === value;
+    }
+
+    function isList(value) {
+      return Object.prototype.toString.call(value) === '[object Array]';
+    }
+
+    /**
+     * The shop's Reports for a period from reportRange - added up by the shop server across EVERY device, like the apps'
+     * Reports screen. cb(error) or cb(null, report): the money in cents, the list of sales and of expenses, and
+     * waitingHere = how many sales on THIS iPad have not reached the shop yet (they are not in the figures).
+     */
+    function loadReport(range, cb) {
+      if (!state.device || !state.device.apiKey || !state.joined) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if (!range || !range.ok) {
+        cb(problem('input', range && range.message ? range.message : 'Choose the period first.'));
+        return;
+      }
+      var query = 'lite_report&from_utc=' + encodeURIComponent(range.fromUtc) + '&to_utc=' + encodeURIComponent(range.toUtc) +
+        '&from_date=' + encodeURIComponent(range.fromDate) + '&to_date=' + encodeURIComponent(range.toDate);
+      call('GET', query, null, function (error, body, status) {
+        if (error) {
+          if (error.code === 'unauthorized' || error.code === 'forbidden') {
+            cb(problem(error.code, 'This iPad is not allowed to see the shop reports. Ask the owner to check Connected devices.'));
+          } else if (status === 404) {
+            cb(problem('unavailable', 'The shop server cannot give reports yet. Ask the owner to update it.'));
+          } else {
+            cb(error);
+          }
+          return;
+        }
+        var report = body && body.report;
+        var keys = ['salesTotalCents', 'transactionCount', 'cashReceivedCents', 'mpesaCents', 'expensesTotalCents', 'grossProfitCents', 'netProfitCents', 'grandTotalCents'];
+        var ok = !!report && typeof report === 'object' && isList(report.sales) && isList(report.expenses);
+        for (var i = 0; ok && i < keys.length; i++) {
+          ok = whole(report[keys[i]]);
+        }
+        if (!ok) {
+          cb(problem('server', 'The shop server sent a report this till cannot read. Try again, or ask the owner to update the server.'));
+          return;
+        }
+        var out = { range: range, waitingHere: outboxSummary().pending, salesTruncated: !!report.salesTruncated, expensesTruncated: !!report.expensesTruncated, sales: report.sales, expenses: report.expenses };
+        for (var k = 0; k < keys.length; k++) {
+          out[keys[k]] = report[keys[k]];
+        }
+        cb(null, out);
+      });
+    }
+
+    // ---- the dashboard ------------------------------------------------------------------------------------------
+    var DASHBOARD_DAYS = 7;
+
+    /**
+     * The two dashboard figures that need no server, from the catalog already on this iPad (the same rule as the apps):
+     * Low Stock = every product whose stock is at or below its reorder level; Stock Value = cost price times stock,
+     * added up over every product.
+     */
+    function stockFigures() {
+      var lowStock = 0;
+      var stockValue = 0;
+      var products = state.catalog ? state.catalog.products : [];
+      for (var p = 0; p < products.length; p++) {
+        if (products[p].stockQty <= products[p].reorderLevel) {
+          lowStock += 1;
+        }
+        stockValue += products[p].costPriceCents * products[p].stockQty;
+      }
+      return { lowStockCount: lowStock, stockValueCents: stockValue };
+    }
+
+    /**
+     * What the apps' dashboard shows, for the whole shop: Sales Today and Net Profit Today with their change since yesterday,
+     * the last 7 days (sales, expenses, net profit), Low Stock and Stock Value (these two from the catalog already on this
+     * iPad). cb(error) or cb(null, {today, yesterday, salesChange, netProfitChange, last7, lowStockCount, stockValueCents,
+     * waitingHere}); a figure set is {salesTotalCents, transactionCount, grossProfitCents, expensesTotalCents, netProfitCents}.
+     */
+    function loadDashboard(cb) {
+      if (!state.device || !state.device.apiKey || !state.joined) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      var periods = dashboardPeriods(now(), DASHBOARD_DAYS);
+      var query = 'lite_dashboard&bounds=' + encodeURIComponent(periods.bounds.join(',')) + '&dates=' + encodeURIComponent(periods.dates.join(','));
+      call('GET', query, null, function (error, body, status) {
+        if (error) {
+          if (error.code === 'unauthorized' || error.code === 'forbidden') {
+            cb(problem(error.code, 'This iPad is not allowed to see the shop figures. Ask the owner to check Connected devices.'));
+          } else if (status === 404) {
+            cb(problem('unavailable', 'The shop server cannot give the dashboard yet. Ask the owner to update it.'));
+          } else {
+            cb(error);
+          }
+          return;
+        }
+        var keys = ['salesTotalCents', 'transactionCount', 'grossProfitCents', 'expensesTotalCents', 'netProfitCents'];
+        var list = body && body.days;
+        var ok = isList(list) && list.length === DASHBOARD_DAYS;
+        for (var i = 0; ok && i < list.length; i++) {
+          for (var k = 0; ok && k < keys.length; k++) {
+            ok = !!list[i] && whole(list[i][keys[k]]);
+          }
+        }
+        if (!ok) {
+          cb(problem('server', 'The shop server sent a dashboard this till cannot read. Try again, or ask the owner to update the server.'));
+          return;
+        }
+        var days = [];
+        for (var d = 0; d < list.length; d++) {
+          var day = { date: periods.days[d] };
+          for (var j = 0; j < keys.length; j++) {
+            day[keys[j]] = list[d][keys[j]];
+          }
+          days.push(day);
+        }
+        var today = days[days.length - 1];
+        var yesterday = days[days.length - 2];
+        var stock = stockFigures();
+        cb(null, {
+          today: today, yesterday: yesterday, last7: days,
+          salesChange: percentChange(today.salesTotalCents, yesterday.salesTotalCents),
+          netProfitChange: percentChange(today.netProfitCents, yesterday.netProfitCents),
+          lowStockCount: stock.lowStockCount, stockValueCents: stock.stockValueCents, waitingHere: outboxSummary().pending
+        });
+      });
+    }
+
     // ---- printing a receipt -------------------------------------------------------------------------------------
     /** The shop's details for the top and bottom of a receipt (from the shop data the iPad already has). */
     function shopInfo() {
@@ -622,13 +753,22 @@
       return (n < 10 ? '0' : '') + n;
     }
 
-    /** What goes on the printed receipt, as plain data (the page only has to draw it). A reprint says so at the top. */
+    /**
+     * The receipt, as plain data the page only has to draw - the same layout as the apps' receipt: shop name, "Powered by
+     * NEXAPOS", address, phone; receipt number, date, cashier; the items; Subtotal, Discount and TOTAL; how it was paid;
+     * sale type and status; the thank-you and support lines, the shop's own footer and the barcode. Amounts carry the
+     * currency ("KES 150.00"). A reprint says so. rows with text:true are written "Label: value", the others have the
+     * value at the right edge.
+     */
     function receiptSheet(receipt, reprint) {
       var shop = shopInfo();
+      function money(cents) {
+        return shop.currency + ' ' + formatCents(cents);
+      }
       var d = new Date(receipt.createdAt);
       var meta = [
         { label: 'Receipt #', value: receipt.saleNumber },
-        { label: 'Date', value: two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) }
+        { label: 'Date', value: d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear() + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) }
       ];
       if (receipt.cashierName) {
         meta.push({ label: 'Cashier', value: receipt.cashierName });
@@ -639,34 +779,35 @@
       var lines = [];
       for (var i = 0; i < receipt.lines.length; i++) {
         var line = receipt.lines[i];
-        lines.push({ name: line.name, detail: line.quantity + ' x ' + formatCents(line.unitPriceCents), total: formatCents(line.lineTotalCents) });
+        lines.push({ name: line.name, quantity: line.quantity, unit: money(line.unitPriceCents), total: money(line.lineTotalCents) });
       }
-      var totals = [];
-      if (receipt.discountCents > 0) {
-        totals.push({ label: 'Subtotal', value: formatCents(receipt.subtotalCents) });
-        totals.push({ label: 'Discount', value: '-' + formatCents(receipt.discountCents) });
+      var totals = [
+        { label: 'Subtotal', value: money(receipt.subtotalCents) },
+        { label: 'Discount', value: money(receipt.discountCents) },
+        { label: 'TOTAL', value: money(receipt.totalCents), grand: true }
+      ];
+      var method = receipt.paymentMethod;
+      var payment = [{ label: 'Payment', value: method === 'cash' ? 'Cash' : (method === 'mpesa_manual' ? 'M-Pesa (Manual)' : 'M-Pesa'), text: true }];
+      if (method === 'mpesa_manual' && receipt.referenceNote) {
+        payment.push({ label: 'Reference', value: receipt.referenceNote, text: true });
       }
-      totals.push({ label: 'TOTAL (' + shop.currency + ')', value: formatCents(receipt.totalCents), grand: true });
-      var payment = [];
-      payment.push({ label: 'Paid by', value: receipt.paymentMethod === 'cash' ? 'Cash' : (receipt.paymentMethod === 'paystack' ? 'Online (Paystack)' : 'M-Pesa') });
-      if (receipt.paymentMethod !== 'cash' && receipt.paymentMethod !== 'paystack' && receipt.referenceNote) {
-        payment.push({ label: 'Reference', value: receipt.referenceNote });
+      if (method === 'cash' && receipt.cashReceivedCents !== null && receipt.cashReceivedCents !== undefined) {
+        payment.push({ label: 'Cash received', value: money(receipt.cashReceivedCents) });
+        payment.push({ label: receipt.changeDueCents < 0 ? 'Still owed' : 'Change due', value: money(Math.abs(receipt.changeDueCents)) });
       }
-      if (receipt.paymentMethod === 'cash' && receipt.cashReceivedCents !== null && receipt.cashReceivedCents !== undefined) {
-        payment.push({ label: 'Cash received', value: formatCents(receipt.cashReceivedCents) });
-        if (receipt.changeDueCents >= 0) {
-          payment.push({ label: 'Change', value: formatCents(receipt.changeDueCents) });
-        } else {
-          payment.push({ label: 'Balance owed', value: formatCents(-receipt.changeDueCents) });
-        }
-      }
+      payment.push({ label: 'Sale type', value: receipt.saleType === 'wholesale' ? 'Wholesale' : 'Retail', text: true });
+      payment.push({ label: 'Status', value: 'PAID', text: true });
       return {
         widthMm: shop.paperWidthMm,
         shopName: shop.name,
+        poweredBy: 'Powered by NEXAPOS',
         address: shop.address,
         phone: shop.phone,
         footer: shop.footer,
-        title: reprint ? 'RECEIPT - REPRINT' : 'RECEIPT',
+        thanks: 'Thank you for shopping with us!',
+        support: 'Support / Installation: 0768415017',
+        barcodeValue: options.barcode ? options.barcode.receiptBarcodeValue(receipt.saleNumber) : '',
+        reprint: !!reprint,
         meta: meta,
         lines: lines,
         totals: totals,
@@ -1280,6 +1421,9 @@
       holdSale: holdSale,
       shopInfo: shopInfo,
       todaySummary: todaySummary,
+      loadReport: loadReport,
+      loadDashboard: loadDashboard,
+      stockFigures: stockFigures,
       receiptSheet: receiptSheet,
       heldList: heldList,
       resumeHeld: resumeHeld,
@@ -1297,6 +1441,144 @@
       parseCents: parseCents,
       _memoryOnly: function () { return memoryOnly; }
     };
+  }
+
+  // ---- reports: which period is meant ----------------------------------------------------------------------------
+  var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var MAX_REPORT_DAYS = 400;
+
+  function pad2(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  /** 1 -> 1st, 2 -> 2nd, 11 -> 11th, 22 -> 22nd (as the apps' Reports label a day). */
+  function ordinal(day) {
+    var lastTwo = day % 100;
+    if (lastTwo >= 11 && lastTwo <= 13) {
+      return day + 'th';
+    }
+    var last = day % 10;
+    return day + (last === 1 ? 'st' : (last === 2 ? 'nd' : (last === 3 ? 'rd' : 'th')));
+  }
+
+  /** "2026-11-12" -> that calendar day at local midnight; null when it is not a real day. */
+  function parseDay(text) {
+    var found = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text === undefined || text === null ? '' : text));
+    if (!found) {
+      return null;
+    }
+    var year = Number(found[1]);
+    var month = Number(found[2]);
+    var day = Number(found[3]);
+    if (year < 2000 || year > 2100) {
+      return null;
+    }
+    var date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+      return null;
+    }
+    return date;
+  }
+
+  function dayText(date) {
+    return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+  }
+
+  /**
+   * What the shop server needs to know about a report period, worked out in THIS iPad's own local time (so "today" is the
+   * shopkeeper's today): the start and end as UTC instants for sales, and plain dates for expenses; the end is the first
+   * moment AFTER the period. Like the apps' Reports screen, with its four tabs:
+   *   'day'      {date: '2026-11-12'}               Daily Sales Report
+   *   'month'    {year: 2026, month: 11}            Monthly Sales Report
+   *   'range'    {since: '2026-11-07', until: '2026-11-13'}   Selected Period Sales Report (either order)
+   *   'expenses' {date: '2026-11-12'}               Expenses Report
+   * -> {ok:true, mode, title, period, fromUtc, toUtc, fromDate, toDate, days} | {ok:false, message}
+   */
+  function reportRange(mode, input) {
+    input = input || {};
+    var start = null;
+    var end = null;
+    var title = '';
+    var period = '';
+    var bad = { ok: false, message: 'Choose a real date.' };
+    if (mode === 'month') {
+      var year = Number(input.year);
+      var month = Number(input.month);
+      if (!(year >= 2000 && year <= 2100) || !(month >= 1 && month <= 12) || Math.floor(year) !== year || Math.floor(month) !== month) {
+        return { ok: false, message: 'Choose a month and a year.' };
+      }
+      start = new Date(year, month - 1, 1);
+      end = new Date(year, month, 1);
+      title = 'Monthly Sales Report';
+      period = (MONTH_NAMES[month - 1] + ' ' + year).toUpperCase();
+    } else if (mode === 'range') {
+      var first = parseDay(input.since);
+      var last = parseDay(input.until);
+      if (!first || !last) {
+        return bad;
+      }
+      if (first.getTime() > last.getTime()) {
+        var swap = first;
+        first = last;
+        last = swap;
+      }
+      start = first;
+      end = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1);
+      title = 'Selected Period Sales Report';
+      period = (ordinal(first.getDate()) + ' ' + MONTH_NAMES[first.getMonth()].slice(0, 3) + ' ' + first.getFullYear() + ' - ' +
+        ordinal(last.getDate()) + ' ' + MONTH_NAMES[last.getMonth()].slice(0, 3) + ' ' + last.getFullYear()).toUpperCase();
+    } else if (mode === 'day' || mode === 'expenses') {
+      var day = parseDay(input.date);
+      if (!day) {
+        return bad;
+      }
+      start = day;
+      end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+      title = mode === 'day' ? 'Daily Sales Report' : 'Expenses Report';
+      period = (ordinal(day.getDate()) + ' ' + MONTH_NAMES[day.getMonth()]).toUpperCase();
+    } else {
+      return { ok: false, message: 'Choose a report.' };
+    }
+    var days = Math.round((end.getTime() - start.getTime()) / 86400000);
+    if (days > MAX_REPORT_DAYS) {
+      return { ok: false, message: 'Choose a period of up to ' + MAX_REPORT_DAYS + ' days.' };
+    }
+    return {
+      ok: true, mode: mode, title: title, period: period, days: days,
+      fromUtc: start.toISOString(), toUtc: end.toISOString(), fromDate: dayText(start), toDate: dayText(end)
+    };
+  }
+
+  // ---- the dashboard ----------------------------------------------------------------------------------------------
+  /**
+   * The apps' "change since yesterday" badge (PercentChange.compare): up, down or flat, and by how many percent. When
+   * yesterday was exactly zero there is nothing to compare with: today also zero is flat; anything else counts as +100%.
+   * Rounding is half away from zero, like the apps.
+   */
+  function percentChange(current, previous) {
+    if (previous === 0) {
+      return current === 0 ? { percent: 0, direction: 'flat' } : { percent: 100, direction: 'up' };
+    }
+    var raw = (current - previous) / Math.abs(previous) * 100;
+    var percent = raw < 0 ? -Math.round(-raw) : Math.round(raw);
+    return { percent: percent, direction: percent > 0 ? 'up' : (percent < 0 ? 'down' : 'flat') };
+  }
+
+  /**
+   * The last [days] local days ending with the one that contains [nowMs] (the iPad's own "today"), as the edges the shop
+   * server wants: one more edge than days, as UTC instants and as plain dates. days[i] is the plain date of period i.
+   */
+  function dashboardPeriods(nowMs, days) {
+    var today = new Date(nowMs);
+    var bounds = [];
+    var dates = [];
+    for (var k = 0; k <= days; k++) {
+      // edge 0 is the start of the first day; the last edge is the start of tomorrow (the end of today)
+      var edge = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1) + k);
+      bounds.push(edge.toISOString());
+      dates.push(dayText(edge));
+    }
+    return { bounds: bounds, dates: dates, days: dates.slice(0, days) };
   }
 
   // ---- is there a newer version of the till? -------------------------------------------------------------------
@@ -1343,5 +1625,5 @@
     return running !== null && latest !== null && running !== latest;
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable };
 }));
