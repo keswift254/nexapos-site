@@ -22,9 +22,20 @@ To run the integration test locally you need the platform repo's PHP server on a
 | Command | What it proves |
 |---|---|
 | `node tests/lite/online.test.js` | Paystack is asked first; the pending sale reserves stock; a payment is settled as paid only when Paystack says `success` for the right amount and currency; cancelling does one last check and needs the internet; settles queue behind their sale; a settle already done elsewhere is not a refusal (33 tests, mutation-checked) |
+| `node tests/lite/held.test.js` | Held sales: a sale set aside keeps everything on the screen (items, sale type, discount, payment choice, number, cash typed), newest first, auto-named Held sale 1, 2, 3; survives a reload, a log out and another cashier; limit of 50; odd carts are refused or tidied; takes no stock and sends nothing; opening or throwing away removes only that one, for good (12 tests, mutation-checked: 37 of 37 weakenings caught) |
+| `node tests/lite/print.test.js` | Printing a receipt: the sheet has the shop details (name, address, phone, footer, paper width 58/80 mm with a safe fallback), receipt number, date with year, cashier, items, subtotal/discount/total with the currency, how it was paid (M-Pesa reference, cash received, change or balance owed), and says REPRINT on a reprint; the cashier is kept on the saved receipt (also for online sales after a log out); printing changes nothing (10 tests, mutation-checked: 37 of 37 weakenings caught) |
+| `node tests/lite/today.test.js` | "Today on this iPad" totals on the Sales tab: finished sales since the iPad's midnight (exactly midnight counts, a second before does not), split into cash / M-Pesa / online with item count; an unpaid or cancelled online payment, a sale the shop refused and one the owner removed are left out; a discount counts as the money taken; says when the iPad may have forgotten some of today (it keeps the latest 100); asking changes nothing (9 tests, mutation-checked: 23 of 23 weakenings caught) |
+| `node tests/lite/update.test.js` | "A new version is available": the page tells a newer release apart from the one running (build label in `<meta name="lite-build">` + each script's `?v=`; error pages, login walls and empty answers never count as an update); the real page carries the label, versioned scripts and the update bar; **release guard**: fails when anything in `lite/` changed without the build label being bumped and recorded (8 tests, mutation-checked: 17 of 17 weakenings caught) |
 | `LITE_API=... LITE_FAKE_PAYSTACK=http://127.0.0.1:18090 LITE_MYSQL=<mysql client> LITE_DB_NAME=<db> node tests/lite/online-integration.js` | the same flow against a REAL platform server and a pretend Paystack (platform repo `tests/integration/fake_paystack_lite.php`): initialise with the shop's payout account, own email and the Lite return page; guard accepts the pending sale and its settle; abandon/cancel; wrong amount refused by the platform; only the starting device can verify; no payout account refused; tampered settle refused |
 
 Start the platform with `PLATFORM_PAYSTACK_API_BASE=http://127.0.0.1:18090`, `PLATFORM_PAYSTACK_SECRET_KEY=test-only`,
 `NEXAPOS_IGNORE_LOCAL_CONFIG=1` and a database name that does **not** exist yet (the server creates and migrates it).
 
 `lite/qrcode.js` is qrcode-generator 1.4.4 (MIT, Kazuhiko Arase), plain ES3/ES5.
+
+## Releasing a new Lite version
+
+1. Change the files in `lite/`.
+2. Bump `<meta name="lite-build" content="YYYY-MM-DD.N">` in `lite/index.html` and the `?v=` of each script you changed.
+3. Run `node tests/lite/update.test.js --record` (it refuses if the files changed but the label did not).
+4. Upload as usual. Every iPad that has the till open then shows "A new version of NexaPOS Lite is available" within about five minutes (or as soon as the page comes back to the front); "Update now" puts a sale in progress on hold and reloads.

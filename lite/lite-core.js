@@ -104,7 +104,7 @@
 
     // ---- storage ----------------------------------------------------------------------------------------
     function blank() {
-      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [], online: [], notices: [] };
+      return { version: 1, device: null, joined: false, catalog: null, fetchedAt: 0, serverOffset: 0, failedLogins: 0, lockedUntil: 0, revoked: false, nextRev: 1, outbox: [], history: [], online: [], notices: [], held: [] };
     }
 
     function load() {
@@ -118,6 +118,7 @@
             parsed.history = parsed.history || [];
             parsed.online = parsed.online || [];
             parsed.notices = parsed.notices || [];
+            parsed.held = parsed.held || [];
             return parsed;
           }
         }
@@ -524,6 +525,7 @@
       if (!built.ok) {
         return built;
       }
+      built.receipt.cashierName = session.name;
       commitBuilt(built, null);
       return { ok: true, receipt: built.receipt };
     }
@@ -561,6 +563,117 @@
       return business && business.currency ? String(business.currency).toUpperCase() : 'KES';
     }
 
+    // ---- today's totals on this iPad ----------------------------------------------------------------------------
+    var HISTORY_LIMIT = 100;
+
+    /**
+     * What this iPad sold today (since midnight, the iPad's own clock), from the sales it remembers: finished sales only -
+     * an online payment still waiting, a cancelled one, and sales the shop refused or the owner removed are left out.
+     * complete is false when the iPad may already have forgotten some of today's sales (it keeps the latest 100).
+     */
+    function todaySummary() {
+      var start = new Date(now());
+      start.setHours(0, 0, 0, 0);
+      var from = start.getTime();
+      var out = { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, complete: true };
+      for (var i = 0; i < state.history.length; i++) {
+        var entry = state.history[i];
+        var receipt = entry.receipt;
+        if (receipt.createdAt < from) {
+          continue;
+        }
+        if ((entry.status !== 'queued' && entry.status !== 'sent') || entry.payment === 'awaiting' || entry.payment === 'cancelled') {
+          continue;
+        }
+        out.sales += 1;
+        out.totalCents += receipt.totalCents;
+        for (var j = 0; j < receipt.lines.length; j++) {
+          out.items += receipt.lines[j].quantity;
+        }
+        if (receipt.paymentMethod === 'cash') {
+          out.cashCents += receipt.totalCents;
+        } else if (receipt.paymentMethod === 'paystack') {
+          out.onlineCents += receipt.totalCents;
+        } else {
+          out.mpesaCents += receipt.totalCents;
+        }
+      }
+      var oldest = state.history.length > 0 ? state.history[state.history.length - 1].receipt.createdAt : 0;
+      out.complete = state.history.length < HISTORY_LIMIT || oldest < from;
+      return out;
+    }
+
+    // ---- printing a receipt -------------------------------------------------------------------------------------
+    /** The shop's details for the top and bottom of a receipt (from the shop data the iPad already has). */
+    function shopInfo() {
+      var business = state.catalog && state.catalog.business ? state.catalog.business : {};
+      var width = Number(business.paperWidthMm);
+      return {
+        name: business.businessName ? String(business.businessName) : 'Shop',
+        address: business.address ? String(business.address) : '',
+        phone: business.phone ? String(business.phone) : '',
+        footer: business.receiptFooter ? String(business.receiptFooter) : '',
+        currency: currencyCode(),
+        paperWidthMm: width >= 40 && width <= 120 ? width : 58
+      };
+    }
+
+    function two(n) {
+      return (n < 10 ? '0' : '') + n;
+    }
+
+    /** What goes on the printed receipt, as plain data (the page only has to draw it). A reprint says so at the top. */
+    function receiptSheet(receipt, reprint) {
+      var shop = shopInfo();
+      var d = new Date(receipt.createdAt);
+      var meta = [
+        { label: 'Receipt #', value: receipt.saleNumber },
+        { label: 'Date', value: two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) }
+      ];
+      if (receipt.cashierName) {
+        meta.push({ label: 'Cashier', value: receipt.cashierName });
+      }
+      if (receipt.customerName && receipt.customerName !== 'Walk-in customer') {
+        meta.push({ label: 'Customer', value: receipt.customerName });
+      }
+      var lines = [];
+      for (var i = 0; i < receipt.lines.length; i++) {
+        var line = receipt.lines[i];
+        lines.push({ name: line.name, detail: line.quantity + ' x ' + formatCents(line.unitPriceCents), total: formatCents(line.lineTotalCents) });
+      }
+      var totals = [];
+      if (receipt.discountCents > 0) {
+        totals.push({ label: 'Subtotal', value: formatCents(receipt.subtotalCents) });
+        totals.push({ label: 'Discount', value: '-' + formatCents(receipt.discountCents) });
+      }
+      totals.push({ label: 'TOTAL (' + shop.currency + ')', value: formatCents(receipt.totalCents), grand: true });
+      var payment = [];
+      payment.push({ label: 'Paid by', value: receipt.paymentMethod === 'cash' ? 'Cash' : (receipt.paymentMethod === 'paystack' ? 'Online (Paystack)' : 'M-Pesa') });
+      if (receipt.paymentMethod !== 'cash' && receipt.paymentMethod !== 'paystack' && receipt.referenceNote) {
+        payment.push({ label: 'Reference', value: receipt.referenceNote });
+      }
+      if (receipt.paymentMethod === 'cash' && receipt.cashReceivedCents !== null && receipt.cashReceivedCents !== undefined) {
+        payment.push({ label: 'Cash received', value: formatCents(receipt.cashReceivedCents) });
+        if (receipt.changeDueCents >= 0) {
+          payment.push({ label: 'Change', value: formatCents(receipt.changeDueCents) });
+        } else {
+          payment.push({ label: 'Balance owed', value: formatCents(-receipt.changeDueCents) });
+        }
+      }
+      return {
+        widthMm: shop.paperWidthMm,
+        shopName: shop.name,
+        address: shop.address,
+        phone: shop.phone,
+        footer: shop.footer,
+        title: reprint ? 'RECEIPT - REPRINT' : 'RECEIPT',
+        meta: meta,
+        lines: lines,
+        totals: totals,
+        payment: payment
+      };
+    }
+
     function addNotice(kind, text) {
       state.notices.unshift({ id: random(6), kind: kind, text: text, at: now() });
       if (state.notices.length > 20) {
@@ -596,12 +709,15 @@
       }
       var saleNumber = options.sale.newSaleNumber(state.device.id, now(), random);
       var cashierId = session.id; // the cashier may log out (idle) while Paystack answers; the sale is still theirs
+      var cashierName = session.name;
       function buildNow() {
-        return options.sale.build({
+        var result = options.sale.build({
           cart: request.cart, products: productMap(), saleType: request.saleType, paymentMethod: 'paystack',
           discountCents: request.discountCents, customerName: request.customerName, customerPhone: request.customerPhone,
           userId: cashierId, deviceId: state.device.id, now: now, nextRev: state.nextRev, randomHex: random, saleNumber: saleNumber
         });
+        if (result.ok) { result.receipt.cashierName = cashierName; }
+        return result;
       }
       var built = buildNow();
       if (!built.ok) {
@@ -838,6 +954,107 @@
       });
     }
 
+    // ---- held sales: a sale set aside to serve someone else first ------------------------------------------------
+    // Like the app's: kept only on this iPad (never sent to the shop), takes no stock and records no payment. It is a
+    // saved cart - exactly what the screen had (items, sale type, discount, payment choice, number, cash typed) - so it
+    // survives a reload and a log out, and is shown to whoever logs in next.
+    var MAX_HELD = 50;
+
+    /** The screen's cart, checked and trimmed to just what is kept; null when there is nothing sensible to hold. */
+    function cleanDraft(draft) {
+      if (!draft || typeof draft !== 'object' || !draft.cart || typeof draft.cart.length !== 'number' || draft.cart.length < 1 || draft.cart.length > 200) {
+        return null;
+      }
+      var cart = [];
+      for (var i = 0; i < draft.cart.length; i++) {
+        var line = draft.cart[i];
+        var qty = line ? Number(line.qty) : NaN;
+        if (!line || typeof line.name !== 'string' || line.name === '' || !(qty >= 1) || qty > 100000 || Math.floor(qty) !== qty) {
+          return null;
+        }
+        var productId = line.productId === null || line.productId === undefined ? null : String(line.productId);
+        var kept = { productId: productId, name: line.name.slice(0, 200), qty: qty };
+        if (productId === null) {
+          var price = Number(line.priceCents);
+          if (!(price >= 1) || Math.floor(price) !== price) {
+            return null;
+          }
+          kept.priceCents = price;
+        }
+        cart.push(kept);
+      }
+      return {
+        cart: cart,
+        saleType: draft.saleType === 'wholesale' ? 'wholesale' : 'retail',
+        discount: String(draft.discount || '').slice(0, 20),
+        payment: draft.payment === 'paystack' ? 'paystack' : 'cash',
+        phone: String(draft.phone || '').slice(0, 30),
+        cashReceived: String(draft.cashReceived || '').slice(0, 20)
+      };
+    }
+
+    function heldLabelUsed(label) {
+      for (var i = 0; i < state.held.length; i++) {
+        if (state.held[i].label === label) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /** Sets the screen's cart aside. label is optional ("Held sale 1", 2, 3... when empty). {ok, held} | {ok:false, message}. */
+    function holdSale(label, draft) {
+      if (!session) {
+        return { ok: false, message: 'Log in first.' };
+      }
+      var clean = cleanDraft(draft);
+      if (!clean) {
+        return { ok: false, message: 'There is nothing to hold.' };
+      }
+      if (state.held.length >= MAX_HELD) {
+        return { ok: false, message: 'Too many held sales. Finish or throw away some first.' };
+      }
+      var text = String(label || '').replace(/^\s+|\s+$/g, '').slice(0, 60);
+      if (!text) {
+        var n = 1;
+        while (heldLabelUsed('Held sale ' + n)) {
+          n += 1;
+        }
+        text = 'Held sale ' + n;
+      }
+      var held = { id: random(8), label: text, heldAt: now(), heldBy: session.name, draft: clean };
+      state.held.unshift(held);
+      save();
+      return { ok: true, held: held };
+    }
+
+    function heldList() {
+      return state.held.slice(0);
+    }
+
+    /** Takes a held sale back (it leaves the list): {ok, held} | {ok:false}. */
+    function resumeHeld(id) {
+      for (var i = 0; i < state.held.length; i++) {
+        if (state.held[i].id === id) {
+          var held = state.held.splice(i, 1)[0];
+          save();
+          return { ok: true, held: held };
+        }
+      }
+      return { ok: false, message: 'That held sale is not there any more.' };
+    }
+
+    function discardHeld(id) {
+      for (var i = 0; i < state.held.length; i++) {
+        if (state.held[i].id === id) {
+          state.held.splice(i, 1);
+          save();
+          return { ok: true };
+        }
+      }
+      return { ok: false, message: 'That held sale is not there any more.' };
+    }
+
     function onlineList() {
       var out = [];
       for (var i = 0; i < state.online.length; i++) {
@@ -1024,6 +1241,7 @@
         deviceLabel: state.device ? state.device.label : '',
         pendingSales: outboxSummary().pending,
         onlineWaiting: state.online.length,
+        heldSales: state.held.length,
         rejectedSales: outboxSummary().rejected.length,
         sellBlockedReason: sellBlock()
       };
@@ -1059,6 +1277,13 @@
       checkOnline: checkOnline,
       cancelOnline: cancelOnline,
       retryPrompt: retryPrompt,
+      holdSale: holdSale,
+      shopInfo: shopInfo,
+      todaySummary: todaySummary,
+      receiptSheet: receiptSheet,
+      heldList: heldList,
+      resumeHeld: resumeHeld,
+      discardHeld: discardHeld,
       online: onlineList,
       notices: function () { return state.notices; },
       dismissNotice: dismissNotice,
@@ -1074,5 +1299,49 @@
     };
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY };
+  // ---- is there a newer version of the till? -------------------------------------------------------------------
+  /** The build label a page declares in <meta name="lite-build" content="...">, or null when it has none. */
+  function pageBuild(html) {
+    var metas = String(html || '').match(/<meta\b[^>]*>/gi) || [];
+    for (var i = 0; i < metas.length; i++) {
+      if (/\bname\s*=\s*["']lite-build["']/i.test(metas[i])) {
+        var found = /\bcontent\s*=\s*["']([^"']*)["']/i.exec(metas[i]);
+        return found ? found[1] : null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * What identifies one released version of the till page: its build label plus the ?v= number on each script. Read the
+   * same way from the page that is running and from the page on the server. null when the text is not a till page (an
+   * error page, a login wall) - then nothing is claimed about it.
+   */
+  function pageSignature(html) {
+    var build = pageBuild(html);
+    if (build === null) {
+      return null;
+    }
+    var tags = String(html).match(/<script\b[^>]*>/gi) || [];
+    var parts = [];
+    for (var i = 0; i < tags.length; i++) {
+      var src = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(tags[i]);
+      if (src) {
+        var pieces = /^([^?#]*)(?:\?v=([^&#]*))?/.exec(src[1]);
+        var file = pieces[1].split('/').pop();
+        parts.push(file + '=' + (pieces[2] || ''));
+      }
+    }
+    parts.sort();
+    return build + '|' + parts.join('|');
+  }
+
+  /** True only when both pages are till pages and they are different versions. */
+  function updateAvailable(runningHtml, latestHtml) {
+    var running = pageSignature(runningHtml);
+    var latest = pageSignature(latestHtml);
+    return running !== null && latest !== null && running !== latest;
+  }
+
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable };
 }));

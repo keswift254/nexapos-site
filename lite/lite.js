@@ -149,6 +149,9 @@
     if (status.onlineWaiting > 0 && containerId === 'login-sales') {
       box.appendChild(make('div', 'notice warn', status.onlineWaiting + (status.onlineWaiting === 1 ? ' online payment is' : ' online payments are') + ' waiting for the customer to pay. Log in to see ' + (status.onlineWaiting === 1 ? 'it' : 'them') + '.'));
     }
+    if (status.heldSales > 0 && containerId === 'login-sales') {
+      box.appendChild(make('div', 'notice warn', status.heldSales + (status.heldSales === 1 ? ' sale is' : ' sales are') + ' on hold on this iPad. Log in to open ' + (status.heldSales === 1 ? 'it' : 'them') + '.'));
+    }
     if (status.pendingSales > 0) {
       var warn =make('div', 'notice warn', status.pendingSales + (status.pendingSales === 1 ? ' sale is' : ' sales are') + ' saved on this iPad and waiting to be sent to the shop. ' + (ui.lastSyncProblem ? ui.lastSyncProblem + ' ' : ''));
       var send = make('button', 'small secondary', 'Send now');
@@ -196,6 +199,7 @@
     renderOnline();
     renderPicker();
     renderCart();
+    renderHeld();
     fillCategories();
     renderProducts();
     renderSales();
@@ -320,7 +324,9 @@
     ui.view = name;
     show('view-pick', name === 'pick');
     show('view-cart', name === 'cart');
+    show('view-held', name === 'held');
     if (name === 'cart') { renderCart(); }
+    if (name === 'held') { renderHeld(); }
   }
   el('view-cart-button').onclick = function () { showView('cart'); };
   el('back-to-products').onclick = function () { showView('pick'); };
@@ -394,6 +400,7 @@
     var blocked = core.sellBlockedReason();
     el('complete-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk || ui.starting;
     el('show-qr-button').disabled = ui.cart.length === 0 || !!blocked || !t.discountOk || ui.starting;
+    el('hold-button').disabled = ui.cart.length === 0 || ui.starting;
     if (blocked) { say('sell-message', 'bad', blocked); }
     else if (!t.discountOk) { say('sell-message', 'warn', 'The discount must be a number, like 50 or 50.50.'); }
   }
@@ -438,6 +445,156 @@
   el('clear-button').onclick = function () {
     if (ui.cart.length === 0 || window.confirm('Clear this whole sale?')) { resetSale(); }
   };
+
+  // ---- held sales: set a sale aside to serve someone else (like the app's Hold sale) -------------------------
+  /** Everything the screen has for the sale in progress, as the till code keeps it for a held sale. */
+  function currentDraft() {
+    return {
+      cart: ui.cart,
+      saleType: ui.saleType,
+      discount: el('discount').value,
+      payment: ui.payment,
+      phone: el('paystack-phone').value,
+      cashReceived: el('cash-received').value
+    };
+  }
+
+  /** What a held sale looks like now: item count, a short list of the items, and the total at today's prices. */
+  function heldSummary(held, map) {
+    var cart = held.draft.cart;
+    var count = 0;
+    var subtotal = 0;
+    var missing = false;
+    var names = [];
+    for (var i = 0; i < cart.length; i++) {
+      var unit = 0;
+      if (cart[i].productId === null) {
+        unit = cart[i].priceCents;
+      } else if (map[cart[i].productId]) {
+        unit = Sale.priceFor(map[cart[i].productId], held.draft.saleType);
+      } else {
+        missing = true;
+      }
+      count += cart[i].qty;
+      subtotal += unit * cart[i].qty;
+      names.push(cart[i].qty + ' \u00d7 ' + cart[i].name);
+    }
+    var typed = held.draft.discount.replace(/^\s+|\s+$/g, '');
+    var discount = typed === '' ? 0 : core.parseCents(typed);
+    if (discount === null) { discount = 0; }
+    if (discount > subtotal) { discount = subtotal; }
+    var list = names.join(', ');
+    if (list.length > 110) { list = list.slice(0, 107) + '...'; }
+    return { count: count, total: subtotal - discount, missing: missing, list: list };
+  }
+
+  function renderHeld() {
+    var list = core.heldList();
+    var buttons = ['held-button-pick', 'held-button-cart'];
+    for (var b = 0; b < buttons.length; b++) {
+      show(buttons[b], list.length > 0);
+      if (list.length > 0) { setText(buttons[b], 'Held sales (' + list.length + ')'); }
+    }
+    if (ui.view !== 'held') { return; }
+    var box = el('held-list');
+    box.innerHTML = '';
+    show('held-empty', list.length === 0);
+    var map = catalogMap();
+    for (var i = 0; i < list.length; i++) {
+      (function (held) {
+        var info = heldSummary(held, map);
+        var card = make('div', 'card');
+        card.appendChild(make('div', 'heldname', held.label));
+        card.appendChild(make('div', 'muted', 'Held by ' + held.heldBy + ' \u00b7 ' + timeText(held.heldAt)));
+        card.appendChild(make('div', 'heldlist', info.list));
+        card.appendChild(make('div', 'muted', info.count + (info.count === 1 ? ' item' : ' items') + ' \u00b7 ' + core.formatCents(info.total) + ' at today\'s prices'));
+        if (info.missing) { card.appendChild(make('div', 'notice warn', 'Some of these items are no longer in the shop\'s list. They will be left out when you open it.')); }
+        var open = make('button', 'small', 'Open');
+        open.type = 'button';
+        open.onclick = function () { openHeld(held); };
+        var drop = make('button', 'small secondary', 'Throw away');
+        drop.type = 'button';
+        drop.style.marginTop = '10px';
+        open.style.marginTop = '10px';
+        drop.onclick = function () { throwAwayHeld(held); };
+        card.appendChild(open);
+        card.appendChild(drop);
+        box.appendChild(card);
+      }(list[i]));
+    }
+  }
+
+  function showHeld() {
+    ui.heldFrom = ui.view === 'cart' ? 'cart' : 'pick';
+    say('held-message', '', '');
+    showView('held');
+  }
+  el('held-button-pick').onclick = showHeld;
+  el('held-button-cart').onclick = showHeld;
+  el('held-back').onclick = function () { showView(ui.heldFrom === 'cart' && ui.cart.length > 0 ? 'cart' : 'pick'); };
+
+  el('hold-button').onclick = function () {
+    if (ui.cart.length === 0 || ui.starting) { return; }
+    var name = window.prompt('Name this held sale so you can find it again, for example the customer. You can leave this empty.', '');
+    if (name === null) { return; }
+    var result = core.holdSale(name, currentDraft());
+    if (!result.ok) { say('sell-message', 'bad', result.message); return; }
+    resetSale();
+    renderHeld();
+    say('pick-message', 'ok', '"' + result.held.label + '" is on hold. Open it again from Held sales.');
+  };
+
+  /** Puts a held sale back on the screen. Items that are gone from the shop's list, or sold out, are left out and the cashier is told. */
+  function restoreDraft(draft) {
+    var map = catalogMap();
+    var cart = [];
+    var left = [];
+    var cut = [];
+    for (var i = 0; i < draft.cart.length; i++) {
+      var line = draft.cart[i];
+      if (line.productId === null) {
+        cart.push({ productId: null, name: line.name, qty: line.qty, priceCents: line.priceCents });
+        continue;
+      }
+      var product = map[line.productId];
+      if (!product || product.stockQty < 1) { left.push(line.name); continue; }
+      var qty = Math.min(line.qty, product.stockQty);
+      if (qty < line.qty) { cut.push(line.name); }
+      cart.push({ productId: line.productId, name: line.name, qty: qty });
+    }
+    ui.cart = cart;
+    el('discount').value = draft.discount;
+    el('cash-received').value = draft.cashReceived;
+    el('paystack-phone').value = draft.phone;
+    setSaleType(draft.saleType);
+    setPayment(draft.payment);
+    renderAll();
+    showTab('sell');
+    showView('cart');
+    var notes = [];
+    if (left.length) { notes.push('Left out (not in the shop\'s list any more, or out of stock): ' + left.join(', ') + '.'); }
+    if (cut.length) { notes.push('Less in stock than before, so the quantity was lowered for: ' + cut.join(', ') + '.'); }
+    say('sell-message', notes.length ? 'warn' : '', notes.join(' '));
+  }
+
+  function openHeld(held) {
+    if (ui.cart.length > 0) {
+      // The sale in progress is put on hold first, so opening another one never loses it.
+      if (!window.confirm('You have a sale in progress. Put it on hold and open "' + held.label + '"?')) { return; }
+      var kept = core.holdSale('', currentDraft());
+      if (!kept.ok) { say('held-message', 'bad', kept.message); return; }
+    }
+    var opened = core.resumeHeld(held.id);
+    if (!opened.ok) { say('held-message', 'warn', opened.message); renderHeld(); return; }
+    restoreDraft(opened.held.draft);
+  }
+
+  function throwAwayHeld(held) {
+    if (!window.confirm('Throw away "' + held.label + '"? Nothing will be sold, and it cannot be brought back.')) { return; }
+    var result = core.discardHeld(held.id);
+    say('held-message', result.ok ? 'ok' : 'warn', result.ok ? '"' + held.label + '" was thrown away.' : result.message);
+    renderHeld();
+  }
 
   // ---- completing a sale -------------------------------------------------------------------------------------
   function buildCart(t) {
@@ -502,6 +659,48 @@
     return { kind: 'warn', text: '' };
   }
 
+  // ---- printing a receipt (AirPrint from the browser's own print sheet) ----------------------------------------
+  /** Draws the receipt sheet (the till code decides what is on it) and opens the print sheet. */
+  function printReceipt(receipt, reprint) {
+    if (typeof window.print !== 'function') {
+      window.alert('This browser cannot print.');
+      return;
+    }
+    var sheet = core.receiptSheet(receipt, reprint);
+    var box = el('print-receipt');
+    box.innerHTML = '';
+    box.style.width = sheet.widthMm + 'mm';
+    function line(className, text) { box.appendChild(make('div', className, text)); }
+    function rule() { box.appendChild(make('div', 'pr-rule')); }
+    function pair(className, left, right) {
+      var row = make('div', 'pr-row' + (className ? ' ' + className : ''));
+      row.appendChild(make('span', '', left));
+      row.appendChild(make('span', '', right));
+      box.appendChild(row);
+    }
+    var i;
+    line('pr-center pr-shop', sheet.shopName);
+    if (sheet.address) { line('pr-center', sheet.address); }
+    if (sheet.phone) { line('pr-center', sheet.phone); }
+    line('pr-center pr-title', sheet.title);
+    rule();
+    for (i = 0; i < sheet.meta.length; i++) { pair('', sheet.meta[i].label, sheet.meta[i].value); }
+    rule();
+    for (i = 0; i < sheet.lines.length; i++) {
+      line('pr-item', sheet.lines[i].name);
+      pair('', sheet.lines[i].detail, sheet.lines[i].total);
+    }
+    rule();
+    for (i = 0; i < sheet.totals.length; i++) { pair(sheet.totals[i].grand ? 'pr-grand' : '', sheet.totals[i].label, sheet.totals[i].value); }
+    rule();
+    for (i = 0; i < sheet.payment.length; i++) { pair('', sheet.payment[i].label, sheet.payment[i].value); }
+    if (sheet.footer) {
+      rule();
+      line('pr-center', sheet.footer);
+    }
+    window.print();
+  }
+
   function showReceipt(receipt) {
     var box = el('receipt-box');
     box.innerHTML = '';
@@ -534,10 +733,14 @@
     var statusBox = make('div');
     statusBox.id = 'receipt-status';
     card.appendChild(statusBox);
+    var printIt = make('button', 'secondary', 'Print receipt');
+    printIt.type = 'button';
+    printIt.onclick = function () { printReceipt(receipt, false); };
     var next = make('button', 'big', 'New sale');
     next.type = 'button';
     next.onclick = function () { ui.receiptId = null; show('receipt-box', false); show('sell-form', true); };
     card.appendChild(next);
+    card.appendChild(printIt);
     box.appendChild(card);
     show('receipt-box', true);
     show('sell-form', false);
@@ -930,7 +1133,30 @@
   }
 
   // ---- the Sales tab -----------------------------------------------------------------------------------------
+  /** The "Today on this iPad" card: what was sold since midnight, split by how it was paid. */
+  function renderToday() {
+    var s = core.todaySummary();
+    var info = core.shopInfo();
+    var body = el('today-rows');
+    body.innerHTML = '';
+    function row(label, value, className) {
+      var tr = make('tr', className || '');
+      tr.appendChild(make('td', '', label));
+      tr.appendChild(make('td', 'num', value));
+      body.appendChild(tr);
+    }
+    row('Sales', s.sales + (s.sales === 1 ? ' sale' : ' sales') + ' \u00b7 ' + s.items + (s.items === 1 ? ' item' : ' items'));
+    row('Cash', core.formatCents(s.cashCents));
+    row('M-Pesa', core.formatCents(s.mpesaCents));
+    row('Online (Paystack)', core.formatCents(s.onlineCents));
+    row('Total (' + info.currency + ')', core.formatCents(s.totalCents), 'grand');
+    setText('today-note', s.complete
+      ? 'Only sales made on this iPad since midnight. Other devices are not included.'
+      : 'This iPad keeps only its latest ' + 100 + ' sales, so today\'s figures may be missing some. Only sales made on this iPad are included.');
+  }
+
   function renderSales() {
+    renderToday();
     var body = el('sales-rows');
     body.innerHTML = '';
     var list = core.history();
@@ -948,6 +1174,14 @@
         if (entry.payment === 'awaiting') { label = ['waiting', 'Awaiting payment']; }
         else if (entry.payment === 'cancelled' && entry.status !== 'rejected') { label = ['cancel', 'Cancelled']; }
         state.appendChild(make('span', 'badge ' + label[0], label[1]));
+        if ((entry.status === 'queued' || entry.status === 'sent') && entry.payment !== 'awaiting' && entry.payment !== 'cancelled') {
+          var printAgain = make('button', 'small secondary', 'Print');
+          printAgain.type = 'button';
+          printAgain.style.marginTop = '6px';
+          printAgain.onclick = function () { printReceipt(entry.receipt, true); };
+          state.appendChild(make('div'));
+          state.appendChild(printAgain);
+        }
         if (entry.status === 'rejected' && user && user.roleName === 'Admin') {
           var remove = make('button', 'small secondary', 'Remove');
           remove.type = 'button';
@@ -1072,8 +1306,11 @@
   el('till-refresh').onclick = function () { doSync(true, 'till-refresh', 'till-message'); };
 
   function leaveTill() {
+    // Logging out (or the idle timer) with a sale in progress puts it on hold instead of losing it.
+    if (core.currentUser() && ui.cart.length > 0) { core.holdSale('Unfinished sale', currentDraft()); }
+    resetSale();
+    el('print-receipt').innerHTML = '';
     core.logout();
-    ui.cart = [];
     ui.receiptId = null;
     clearReturnToken();
     stopPayPoll();
@@ -1084,9 +1321,12 @@
   el('logout-button').onclick = leaveTill;
   el('forget-button').onclick = function () {
     var pending = core.getStatus().pendingSales + core.getStatus().rejectedSales;
+    var held = core.getStatus().heldSales;
     var warning = pending > 0
       ? 'This iPad still holds ' + pending + ' sale(s) that the shop has not recorded. Disconnecting will DELETE them. Are you sure?'
-      : 'Disconnect this iPad from the shop? You will need a new invite code to connect again.';
+      : (held > 0
+        ? 'This iPad has ' + held + ' held sale(s). Disconnecting will throw them away. Are you sure?'
+        : 'Disconnect this iPad from the shop? You will need a new invite code to connect again.');
     if (window.confirm(warning)) {
       core.forget();
       route();
@@ -1111,6 +1351,58 @@
   }, SYNC_EVERY_MS);
   window.addEventListener('online', function () { if (core.getStatus().joined) { doSync(false); checkWaitingPayments(); } }, false);
   window.setInterval(checkWaitingPayments, BACKGROUND_PAY_CHECK_MS);
+
+  // ---- a newer version of the till ---------------------------------------------------------------------------
+  // An iPad can keep this page open for days. Every few minutes, and whenever the page comes back to the front or the
+  // internet returns, the page asks the server for a fresh copy of itself and compares it with the copy that is running
+  // (its build label and script versions). When they differ a bar offers "Update now", like the apps do. Nothing is ever
+  // updated by itself in the middle of a sale: the cashier taps it, a sale in progress is put on hold first, and the
+  // sales saved on the iPad are untouched (they live in the browser's storage, not in the page).
+  var UPDATE_CHECK_MS = 5 * 60 * 1000;
+  var runningPage = document.documentElement.outerHTML;
+  var updateChecking = false;
+  var updateDismissed = null;
+  var updateLatestText = '';
+  setText('version-label', window.NexaLiteCore.pageBuild(runningPage) || '');
+
+  function checkForUpdate() {
+    if (updateChecking) { return; }
+    updateChecking = true;
+    xhrHttp({ method: 'GET', url: 'index.html?check=' + new Date().getTime(), headers: {} }, function (error, response) {
+      updateChecking = false;
+      if (error || !response || response.status !== 200) { return; }
+      var newer = window.NexaLiteCore.updateAvailable(runningPage, response.text);
+      var signature = window.NexaLiteCore.pageSignature(response.text);
+      if (newer) { updateLatestText = response.text; }
+      show('update-bar', newer && signature !== updateDismissed);
+      if (!newer) { say('update-message', '', ''); }
+    });
+  }
+
+  el('update-later').onclick = function () {
+    // Quiet until a still newer version comes out; the page is checked again next time it is opened anyway.
+    updateDismissed = window.NexaLiteCore.pageSignature(updateLatestText);
+    show('update-bar', false);
+  };
+
+  el('update-now').onclick = function () {
+    if (ui.starting || ui.payingId) {
+      say('update-message', 'warn', 'Finish or leave the payment first (tap "Start another sale" to keep it waiting), then update.');
+      return;
+    }
+    if (core.currentUser() && ui.cart.length > 0) {
+      if (!window.confirm('Your sale in progress will be put on hold (open it again from Held sales), and the till will restart with the new version. Continue?')) { return; }
+      var kept = core.holdSale('Unfinished sale', currentDraft());
+      if (!kept.ok) { say('update-message', 'bad', kept.message); return; }
+    }
+    window.location.reload();
+  };
+
+  window.setInterval(checkForUpdate, UPDATE_CHECK_MS);
+  window.setTimeout(checkForUpdate, 8000);
+  window.addEventListener('online', checkForUpdate, false);
+  window.addEventListener('pageshow', checkForUpdate, false);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkForUpdate(); } }, false);
 
   // ---- start -------------------------------------------------------------------------------------------------
   // Coming back from paying on this iPad: the cashier who was paying gets their login back (for that one waiting

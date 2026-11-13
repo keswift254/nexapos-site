@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
+  <meta name="lite-build" content="2026-11-13.2">
   <title>NexaPOS Lite</title>
   <style>
     html, body { margin: 0; padding: 0; background: #f4f5fa; color: #14141f; font-family: -apple-system, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
@@ -56,12 +57,40 @@
     .paycard .big { font-size: 30px; font-weight: 800; margin: 4px 0; }
     .waitrow td { padding: 10px 4px; }
     .notice button { margin-top: 6px; }
+    button.wide { width: 100%; margin: 10px 0 0; }
+    .updatebar { position: -webkit-sticky; position: sticky; top: 0; z-index: 20; background: #e3f6e8; color: #1c5a2e; border-radius: 10px; padding: 10px 12px; margin: 8px 0; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
+    .updatebar button { margin: 8px 8px 0 0; }
+    .heldname { font-size: 18px; font-weight: 800; }
+    .heldlist { margin: 6px 0 2px; font-size: 15px; color: #3a3a52; }
+    /* The receipt sheet: not on screen; when printing, it is the only thing printed. Its width is the shop's paper width. */
+    #print-receipt { display: none; }
+    @page { margin: 8mm; }
+    @media print {
+      html, body { background: #fff !important; color: #000 !important; }
+      .page { display: none !important; }
+      #print-receipt { display: block !important; margin: 0; padding: 0; font-family: Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.35; color: #000; }
+      #print-receipt .pr-center { text-align: center; }
+      #print-receipt .pr-shop { font-size: 16px; font-weight: 800; text-transform: uppercase; }
+      #print-receipt .pr-title { font-weight: 800; margin: 6px 0 2px; }
+      #print-receipt .pr-rule { border-top: 1px dashed #000; margin: 6px 0; height: 0; }
+      #print-receipt .pr-row { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; }
+      #print-receipt .pr-row span { min-width: 0; word-wrap: break-word; }
+      #print-receipt .pr-row span + span { text-align: right; padding-left: 8px; white-space: nowrap; }
+      #print-receipt .pr-grand { font-size: 15px; font-weight: 800; }
+      #print-receipt .pr-item { font-weight: 700; }
+    }
   </style>
 </head>
 <body>
   <div class="page">
     <noscript><div class="notice bad">NexaPOS Lite needs JavaScript. Turn it on in Settings &gt; Safari.</div></noscript>
     <div id="compat" class="notice bad hidden"></div>
+    <div id="update-bar" class="updatebar hidden">
+      <div><b>A new version of NexaPOS Lite is available.</b></div>
+      <div id="update-message"></div>
+      <button id="update-now" type="button">Update now</button>
+      <button id="update-later" class="secondary" type="button">Later</button>
+    </div>
 
     <section id="screen-setup" class="hidden">
       <h1>NexaPOS Lite</h1>
@@ -148,11 +177,15 @@
             </div>
             <div id="pick-message"></div>
             <button id="view-cart-button" class="big" type="button">View cart</button>
+            <button id="held-button-pick" class="secondary wide hidden" type="button">Held sales</button>
           </div>
 
           <!-- Step 2, like the app's Cart & Checkout screen -->
           <div id="view-cart" class="hidden">
-            <button id="back-to-products" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Add more items</button>
+            <div>
+              <button id="back-to-products" class="secondary small" type="button" style="margin:0 6px 6px 0">&lsaquo; Add more items</button>
+              <button id="held-button-cart" class="secondary small hidden" type="button" style="margin:0 0 6px">Held sales</button>
+            </div>
             <div class="card">
               <div id="cart-empty" class="muted">Your cart is empty.</div>
               <table><tbody id="cart-lines"></tbody></table>
@@ -191,8 +224,21 @@
               </div>
               <div id="sell-message"></div>
               <button id="complete-button" class="big" type="button">Complete Sale</button>
+              <button id="hold-button" class="secondary" type="button">Hold this sale</button>
               <button id="clear-button" class="secondary" type="button">Clear this sale</button>
             </div>
+          </div>
+
+          <!-- Held sales, like the app's: sales set aside to serve someone else first -->
+          <div id="view-held" class="hidden">
+            <button id="held-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Back to the sale</button>
+            <div class="card">
+              <h2>Held sales</h2>
+              <p class="muted">Sales set aside while you serve someone else. They stay on this iPad until you open or throw them away. No stock is taken and no money is recorded until the sale is completed.</p>
+              <div id="held-empty" class="muted">No held sales.</div>
+              <div id="held-list"></div>
+            </div>
+            <div id="held-message"></div>
           </div>
         </div>
       </div>
@@ -217,6 +263,11 @@
       <!-- SALES -->
       <div id="panel-sales" class="hidden">
         <div class="card">
+          <h2>Today on this iPad</h2>
+          <table class="totals"><tbody id="today-rows"></tbody></table>
+          <p class="muted" id="today-note"></p>
+        </div>
+        <div class="card">
           <h2>Sales made on this iPad</h2>
           <table><tbody id="sales-rows"></tbody></table>
           <p class="muted" id="sales-note"></p>
@@ -228,12 +279,13 @@
       <button id="till-refresh" class="secondary" type="button">Send sales and update shop data</button>
     </section>
 
-    <p class="muted" style="margin-top:26px">NexaPOS Lite</p>
+    <p class="muted" style="margin-top:26px">NexaPOS Lite &middot; version <span id="version-label"></span></p>
   </div>
+  <div id="print-receipt"></div>
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=3"></script>
-  <script src="lite-core.js?v=6"></script>
-  <script src="lite.js?v=6"></script>
+  <script src="lite-core.js?v=10"></script>
+  <script src="lite.js?v=10"></script>
 </body>
 </html>
