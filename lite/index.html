@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-16.2">
+  <meta name="lite-build" content="2026-11-16.3">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -112,6 +112,18 @@
     .grandrow.bold { font-weight: 700; font-size: 18px; }
     .reporthead { margin: 10px 0 0; }
     .reporthead .period { color: #46464F; color: var(--on-surface-variant); font-size: 13px; font-weight: 500; letter-spacing: .5px; }
+    /* Refunds */
+    .refline { padding: 12px 0; border-bottom: 1px solid #E4E1E9; border-bottom: 1px solid var(--surface-highest); }
+    .refline .top { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; }
+    .refline .name { font-weight: 500; min-width: 0; word-wrap: break-word; }
+    .refline .amount { white-space: nowrap; padding-left: 10px; font-weight: 500; }
+    .refline.done { opacity: .5; }
+    .stepper { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin: 8px 0 0; }
+    .stepper button { margin: 0; min-width: 48px; padding: 0 12px; font-size: 22px; }
+    .stepper .qty { min-width: 44px; font-size: 20px; }
+    .stepper label.keep { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin: 0 0 0 auto; font-size: 14px; font-weight: 400; letter-spacing: 0; color: #1B1B21; }
+    .stepper label.keep input { width: 22px; height: 22px; margin: 0 8px 0 0; padding: 0; -webkit-appearance: checkbox; appearance: checkbox; }
+    .paper .pp-title { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 2px; border-top: 1px solid #000; padding: 6px 0 0; margin: 10px 0 0; }
     /* The receipt, drawn like the apps' (monospace paper), on screen and when printing */
     .paper { background: #fff; color: #000; border: 1px solid #C7C5D0; border-radius: 4px; padding: 20px 16px; max-width: 380px; margin: 12px auto; font-family: Menlo, 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.4; }
     .paper .pp-center { text-align: center; }
@@ -410,6 +422,35 @@
         <button id="exp-add" class="big" type="button">Add Expense</button>
       </div>
 
+      <!-- REFUND (opened from a sale in Reports or on the Sales tab) -->
+      <div id="panel-refund" class="hidden">
+        <button id="refund-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Back</button>
+        <div id="refund-message"></div>
+        <div id="refund-body" class="hidden">
+          <div class="card">
+            <h2>Refund a sale</h2>
+            <div id="refund-sub" class="muted"></div>
+          </div>
+          <div class="card">
+            <h2>What is being given back?</h2>
+            <div id="refund-lines"></div>
+            <button id="refund-all" class="secondary small" type="button" style="margin-top:12px">Refund the whole sale</button>
+            <button id="refund-clear" class="outlined small" type="button" style="margin-top:12px">Clear</button>
+          </div>
+          <div class="card">
+            <label for="refund-reason" style="margin-top:0">Reason for the refund</label>
+            <input id="refund-reason" type="text" maxlength="200" autocomplete="off">
+            <table class="totals" style="margin-top:12px"><tbody id="refund-totals"></tbody></table>
+            <div id="refund-payback"></div>
+            <label for="refund-password">Your password</label>
+            <input id="refund-password" type="password" autocapitalize="none" autocorrect="off" autocomplete="off">
+            <div id="refund-form-message"></div>
+            <button id="refund-submit" class="big" type="button">Refund</button>
+          </div>
+        </div>
+        <div id="refund-done" class="hidden"></div>
+      </div>
+
       <!-- SALES -->
       <div id="panel-sales" class="hidden">
         <div class="card">
@@ -434,9 +475,9 @@
   <div id="print-receipt"></div>
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
-  <script src="lite-sale.js?v=4"></script>
+  <script src="lite-sale.js?v=5"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=13"></script>
-  <script src="lite.js?v=13"></script>
+  <script src="lite-core.js?v=14"></script>
+  <script src="lite.js?v=14"></script>
 </body>
 </html>

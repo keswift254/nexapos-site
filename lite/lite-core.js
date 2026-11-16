@@ -328,7 +328,7 @@
       });
     }
 
-    function failedAttempt(cb) {
+    function failedAttempt(cb, wrongText) {
       state.failedLogins += 1;
       if (state.failedLogins >= MAX_FAILED_LOGINS) {
         state.failedLogins = 0;
@@ -338,7 +338,7 @@
         return;
       }
       save();
-      cb(problem('credentials', 'Wrong username or password.'));
+      cb(problem('credentials', wrongText || 'Wrong username or password.'));
     }
 
     function logout() {
@@ -531,9 +531,9 @@
     }
 
     /** Saves a built sale on the iPad (outbox, history, stock). Shared by cash/M-Pesa sales and online ones. */
-    function commitBuilt(built, onlineInfo) {
+    function commitBuilt(built, onlineInfo, kind) {
       state.nextRev = built.nextRev;
-      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: 'sale' });
+      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: kind || 'sale' });
       state.history.unshift({ receipt: built.receipt, status: 'queued', error: null, payment: onlineInfo ? 'awaiting' : null });
       if (state.history.length > 100) {
         state.history.length = 100;
@@ -557,6 +557,193 @@
       }
     }
 
+    // ---- refunds: the apps' Refund screen, for any sale of the shop ------------------------------------------------------------
+    // An owner (Admin) or a Manager can refund, and must type their own password again first (as in the apps). The sale is read
+    // from the shop (with what earlier refunds already gave back), the refund is saved on this iPad as its own sale with negative
+    // amounts - exactly what the app writes - and sent with the sales. Money is never moved by NexaPOS: it is paid back by hand.
+    var refunding = false;
+
+    /** Why refunding is not possible right now, or null. */
+    function refundBlock() {
+      var blocked = sellBlock();
+      if (blocked) {
+        return blocked;
+      }
+      if (session.roleName !== 'Admin' && session.roleName !== 'Manager') {
+        return 'Only an administrator or a manager can refund.';
+      }
+      return null;
+    }
+
+    /** How many refunds of a sale this iPad holds (waiting or refused): the sale on screen is out of date when that changes. */
+    function refundsHere(saleId) {
+      var count = 0;
+      for (var i = 0; i < state.outbox.length; i++) {
+        if (isRefundEntry(state.outbox[i]) && state.outbox[i].receipt.refundOfSaleId === saleId) {
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    function validRefundSource(body) {
+      if (!body || typeof body !== 'object' || !body.sale || typeof body.sale !== 'object' || !isList(body.items) || !isList(body.lines) || !body.refunded || typeof body.refunded !== 'object') {
+        return false;
+      }
+      var sale = body.sale;
+      if (typeof sale.id !== 'string' || typeof sale.saleNumber !== 'string' || typeof sale.status !== 'string' || typeof sale.paymentMethod !== 'string' ||
+          !whole(sale.subtotalCents) || !whole(sale.discountCents) || !whole(sale.totalCents) ||
+          (sale.cashReceivedCents !== null && sale.cashReceivedCents !== undefined && !whole(sale.cashReceivedCents))) {
+        return false;
+      }
+      var i;
+      for (i = 0; i < body.items.length; i++) {
+        var item = body.items[i];
+        if (!item || typeof item.id !== 'string' || typeof item.itemName !== 'string' || !whole(item.quantity) || !whole(item.unitPriceCents) || !whole(item.costPriceCents)) {
+          return false;
+        }
+      }
+      for (i = 0; i < body.lines.length; i++) {
+        if (!body.lines[i] || typeof body.lines[i].itemId !== 'string' || !whole(body.lines[i].refunded)) {
+          return false;
+        }
+      }
+      var keys = ['subtotalCents', 'discountCents', 'totalCents', 'cashCents'];
+      for (i = 0; i < keys.length; i++) {
+        if (!whole(body.refunded[keys[i]])) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Reads a sale from the shop with its lines and what is already given back, ready for quoteRefund / refundSale. Whatever this iPad
+     * has waiting is sent first, so the shop's picture is complete. cb(error) or cb(null, source).
+     */
+    function loadSaleForRefund(saleId, cb) {
+      var blocked = refundBlock();
+      if (blocked) {
+        cb(problem('input', blocked));
+        return;
+      }
+      // Whatever waits here is sent first. If it cannot be (no internet, the shop busy) the sale can still be opened, unless the sale
+      // itself or a refund of it is among what waits: the shop's picture of it would be incomplete.
+      flush(function () {
+        for (var i = 0; i < state.outbox.length; i++) {
+          var entry = state.outbox[i];
+          if (entry.status === 'pending' && ((isRefundEntry(entry) && entry.receipt.refundOfSaleId === saleId) || (entry.id === saleId && !isExpenseEntry(entry)))) {
+            cb(problem('waiting', 'This sale (or a refund of it) is still waiting on this iPad to be sent to the shop. Connect to the internet and try again.'));
+            return;
+          }
+        }
+        call('GET', 'lite_sale&id=' + encodeURIComponent(saleId), null, function (error, body, status) {
+          if (error) {
+            if (error.code === 'unauthorized' || error.code === 'forbidden') {
+              cb(problem(error.code, 'This iPad is not allowed to refund. Ask the owner to check Connected devices.'));
+            } else if (status === 404 && body && body.message === 'The shop has no such sale.') {
+              cb(problem('missing', 'The shop has no record of that sale, so it cannot be refunded.'));
+            } else if (status === 404) {
+              cb(problem('unavailable', 'The shop server cannot do refunds yet. Ask the owner to update it.'));
+            } else {
+              cb(error);
+            }
+            return;
+          }
+          if (!validRefundSource(body)) {
+            cb(problem('server', 'The shop server sent a sale this till cannot read. Try again, or ask the owner to update the server.'));
+            return;
+          }
+          cb(null, {
+            sale: body.sale,
+            cashierName: typeof body.cashierName === 'string' ? body.cashierName : '',
+            items: body.items,
+            lines: body.lines,
+            refundCount: whole(body.refundCount) ? body.refundCount : 0,
+            refunded: body.refunded,
+            heldHere: refundsHere(saleId)
+          });
+        });
+      });
+    }
+
+    /**
+     * request: {source (from loadSaleForRefund), choices: [{itemId, quantity, restock}], reason, password (the person's own)}
+     * -> cb({ok:true, receipt}) | cb({ok:false, message}). The refund is checked completely BEFORE the password is tried, then saved on
+     * this iPad before anything is sent; call flush() afterwards.
+     */
+    function refundSale(request, cb) {
+      var blocked = refundBlock();
+      if (blocked) {
+        cb({ ok: false, message: blocked });
+        return;
+      }
+      if (refunding) {
+        cb({ ok: false, message: 'A refund is being recorded. Wait a moment.' });
+        return;
+      }
+      var source = request.source;
+      if (!source || !source.sale || refundsHere(source.sale.id) !== source.heldHere) {
+        cb({ ok: false, message: 'This sale has changed since it was opened. Open it again.' });
+        return;
+      }
+      function attempt(rev) {
+        return options.sale.buildRefund({
+          source: source, choices: request.choices || [], reason: request.reason, products: productMap(),
+          userId: session.id, deviceId: state.device.id, now: now, nextRev: rev, randomHex: random
+        });
+      }
+      var first = attempt(state.nextRev);
+      if (!first.ok) {
+        cb(first);
+        return;
+      }
+      if (!request.password) {
+        cb({ ok: false, message: 'Enter your password.' });
+        return;
+      }
+      var people = state.catalog.users;
+      var me = null;
+      for (var i = 0; i < people.length; i++) {
+        if (people[i].id === session.id) {
+          me = people[i];
+        }
+      }
+      if (!me || me.status !== 'active' || (ROLE_NAMES[me.roleId] !== 'Admin' && ROLE_NAMES[me.roleId] !== 'Manager')) {
+        cb({ ok: false, message: 'Only an administrator or a manager can refund.' });
+        return;
+      }
+      if (state.lockedUntil > now()) {
+        cb({ ok: false, message: 'Too many wrong passwords. Try again in ' + Math.ceil((state.lockedUntil - now()) / 1000) + ' seconds.' });
+        return;
+      }
+      refunding = true;
+      var who = session;
+      options.bcrypt.compare(String(request.password), me.passwordHash, function (error, matches) {
+        refunding = false;
+        if (error || !matches) {
+          failedAttempt(function (failure) { cb({ ok: false, message: failure.message }); }, 'That password is not right.');
+          return;
+        }
+        state.failedLogins = 0;
+        state.lockedUntil = 0;
+        if (session !== who || refundBlock() || refundsHere(source.sale.id) !== source.heldHere) {
+          save();
+          cb({ ok: false, message: session !== who ? 'You were logged out. Log in and try again.' : (refundBlock() || 'This sale has changed since it was opened. Open it again.') });
+          return;
+        }
+        var built = attempt(state.nextRev);
+        if (!built.ok) {
+          save();
+          cb(built);
+          return;
+        }
+        built.receipt.cashierName = session.name;
+        commitBuilt(built, null, 'refund');
+        cb({ ok: true, receipt: built.receipt });
+      });
+    }
+
     // ---- online (Paystack) payments -----------------------------------------------------------------------
     function currencyCode() {
       var business = state.catalog ? state.catalog.business : null;
@@ -575,7 +762,7 @@
       var start = new Date(now());
       start.setHours(0, 0, 0, 0);
       var from = start.getTime();
-      var out = { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, complete: true };
+      var out = { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, refunds: 0, refundCents: 0, complete: true };
       for (var i = 0; i < state.history.length; i++) {
         var entry = state.history[i];
         var receipt = entry.receipt;
@@ -583,6 +770,21 @@
           continue;
         }
         if ((entry.status !== 'queued' && entry.status !== 'sent') || entry.payment === 'awaiting' || entry.payment === 'cancelled') {
+          continue;
+        }
+        if (receipt.isRefund) {
+          // money that went back to the customers: it is no sale, but it leaves the till (cash first, as for a split sale)
+          out.refunds += 1;
+          out.refundCents += receipt.totalCents;
+          out.totalCents -= receipt.totalCents;
+          if (receipt.paymentMethod === 'cash') {
+            out.cashCents -= receipt.totalCents;
+          } else if (receipt.paymentMethod === 'paystack') {
+            out.cashCents -= receipt.cashBackCents || 0;
+            out.onlineCents -= receipt.totalCents - (receipt.cashBackCents || 0);
+          } else {
+            out.mpesaCents -= receipt.totalCents;
+          }
           continue;
         }
         out.sales += 1;
@@ -963,6 +1165,9 @@
       function money(cents) {
         return shop.currency + ' ' + formatCents(cents);
       }
+      if (receipt.isRefund) {
+        return refundSheet(receipt, reprint, shop, money);
+      }
       var d = new Date(receipt.createdAt);
       var meta = [
         { label: 'Receipt #', value: receipt.saleNumber },
@@ -1009,6 +1214,63 @@
         meta: meta,
         lines: lines,
         totals: totals,
+        payment: payment
+      };
+    }
+
+    /**
+     * A refund's receipt, laid out like the apps' REFUND receipt: the title, who refunded, which sale and why, what went back, the
+     * money given back (and, for a sale paid partly in cash, how much of it was cash), and how it was paid back.
+     */
+    function refundSheet(receipt, reprint, shop, money) {
+      var d = new Date(receipt.createdAt);
+      var meta = [
+        { label: 'Receipt #', value: receipt.saleNumber },
+        { label: 'Date', value: d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear() + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) }
+      ];
+      if (receipt.cashierName) {
+        meta.push({ label: 'Refunded by', value: receipt.cashierName });
+      }
+      if (receipt.customerName && receipt.customerName !== 'Walk-in customer') {
+        meta.push({ label: 'Customer', value: receipt.customerName });
+      }
+      if (receipt.refundOfSaleNumber) {
+        meta.push({ label: 'Refund of', value: receipt.refundOfSaleNumber });
+      }
+      if (receipt.reason) {
+        meta.push({ label: 'Reason', value: receipt.reason });
+      }
+      var lines = [];
+      for (var i = 0; i < receipt.lines.length; i++) {
+        var line = receipt.lines[i];
+        lines.push({ name: line.name, quantity: line.quantity, unit: money(line.unitPriceCents), total: money(line.lineTotalCents) });
+      }
+      var method = receipt.paymentMethod;
+      var payment = [{ label: 'Paid back via', value: method === 'cash' ? 'Cash' : (method === 'mpesa_manual' ? 'M-Pesa (Manual)' : 'M-Pesa'), text: true }];
+      if (method === 'paystack' && receipt.cashBackCents !== null && receipt.cashBackCents !== undefined) {
+        payment.push({ label: 'Cash back', value: money(receipt.cashBackCents) });
+        payment.push({ label: 'M-Pesa back', value: money(receipt.totalCents - receipt.cashBackCents) });
+      }
+      payment.push({ label: 'Status', value: 'REFUNDED', text: true });
+      return {
+        title: 'REFUND',
+        widthMm: shop.paperWidthMm,
+        shopName: shop.name,
+        poweredBy: 'Powered by NEXAPOS',
+        address: shop.address,
+        phone: shop.phone,
+        footer: shop.footer,
+        thanks: 'Thank you for shopping with us!',
+        support: 'Support / Installation: 0768415017',
+        barcodeValue: options.barcode ? options.barcode.receiptBarcodeValue(receipt.saleNumber) : '',
+        reprint: !!reprint,
+        meta: meta,
+        lines: lines,
+        totals: [
+          { label: 'Subtotal', value: money(receipt.subtotalCents) },
+          { label: 'Discount', value: money(receipt.discountCents) },
+          { label: 'TOTAL REFUNDED', value: money(receipt.totalCents), grand: true }
+        ],
         payment: payment
       };
     }
@@ -1436,12 +1698,18 @@
       return entry.kind === 'expense' || entry.kind === 'expense-delete';
     }
 
-    /** pending / rejected are SALES (and their settlements); pendingExpenses / rejectedExpenses are the expenses entered on this iPad. */
+    function isRefundEntry(entry) {
+      return entry.kind === 'refund';
+    }
+
+    /** pending / rejected are SALES (and their settlements); pendingExpenses / rejectedExpenses are the expenses entered on this iPad; pendingRefunds / rejectedRefunds its refunds. */
     function outboxSummary() {
       var pending = 0;
       var pendingExpenses = 0;
+      var pendingRefunds = 0;
       var rejected = [];
       var rejectedExpenses = [];
+      var rejectedRefunds = [];
       for (var i = 0; i < state.outbox.length; i++) {
         var entry = state.outbox[i];
         if (isExpenseEntry(entry)) {
@@ -1450,13 +1718,19 @@
           } else if (entry.status === 'rejected') {
             rejectedExpenses.push({ id: entry.id, title: entry.expense.title, amountCents: entry.expense.amountCents, deleting: entry.kind === 'expense-delete', message: entry.error, createdAt: entry.createdAt });
           }
+        } else if (isRefundEntry(entry)) {
+          if (entry.status === 'pending') {
+            pendingRefunds += 1;
+          } else if (entry.status === 'rejected') {
+            rejectedRefunds.push({ id: entry.id, saleNumber: entry.receipt.saleNumber, refundOfSaleNumber: entry.receipt.refundOfSaleNumber, totalCents: entry.receipt.totalCents, message: entry.error, createdAt: entry.createdAt });
+          }
         } else if (entry.status === 'pending') {
           pending += 1;
         } else if (entry.status === 'rejected') {
           rejected.push({ id: entry.id, saleNumber: entry.receipt.saleNumber, totalCents: entry.receipt.totalCents, message: entry.error, createdAt: entry.createdAt });
         }
       }
-      return { pending: pending, rejected: rejected, pendingExpenses: pendingExpenses, rejectedExpenses: rejectedExpenses };
+      return { pending: pending, rejected: rejected, pendingExpenses: pendingExpenses, rejectedExpenses: rejectedExpenses, pendingRefunds: pendingRefunds, rejectedRefunds: rejectedRefunds };
     }
 
     /**
@@ -1596,6 +1870,8 @@
         pendingSales: outboxSummary().pending,
         pendingExpenses: outboxSummary().pendingExpenses,
         rejectedExpenses: outboxSummary().rejectedExpenses.length,
+        pendingRefunds: outboxSummary().pendingRefunds,
+        rejectedRefunds: outboxSummary().rejectedRefunds.length,
         onlineWaiting: state.online.length,
         heldSales: state.held.length,
         rejectedSales: outboxSummary().rejected.length,
@@ -1629,6 +1905,11 @@
       getStatus: getStatus,
       forget: forget,
       sell: sell,
+      refundBlock: refundBlock,
+      loadSaleForRefund: loadSaleForRefund,
+      quoteRefund: function (source, choices) { return options.sale.quoteRefund(source, choices); },
+      whyNotRefundable: function (source) { return options.sale.whyNotRefundable(source); },
+      refundSale: refundSale,
       startOnline: startOnline,
       checkOnline: checkOnline,
       cancelOnline: cancelOnline,

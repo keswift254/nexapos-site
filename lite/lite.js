@@ -152,6 +152,17 @@
     if (status.heldSales > 0 && containerId === 'login-sales') {
       box.appendChild(make('div', 'notice warn', status.heldSales + (status.heldSales === 1 ? ' sale is' : ' sales are') + ' on hold on this iPad. Log in to open ' + (status.heldSales === 1 ? 'it' : 'them') + '.'));
     }
+    if (status.rejectedRefunds > 0) {
+      box.appendChild(make('div', 'notice bad', status.rejectedRefunds + (status.rejectedRefunds === 1 ? ' refund was' : ' refunds were') + ' NOT recorded by the shop. Tell the owner now before any money is paid back. Details are on the Sales tab.'));
+    }
+    if (status.pendingRefunds > 0 && containerId !== 'login-sales') {
+      var refundWarn = make('div', 'notice warn', status.pendingRefunds + (status.pendingRefunds === 1 ? ' refund is' : ' refunds are') + ' saved on this iPad and waiting to be sent to the shop. ');
+      var refundSend = make('button', 'small secondary', 'Send now');
+      refundSend.type = 'button';
+      refundSend.onclick = function () { doSync(true); };
+      refundWarn.appendChild(refundSend);
+      box.appendChild(refundWarn);
+    }
     if (status.rejectedExpenses > 0 && containerId !== 'login-sales') {
       box.appendChild(make('div', 'notice bad', status.rejectedExpenses + (status.rejectedExpenses === 1 ? ' expense was' : ' expenses were') + ' NOT recorded by the shop. Open Expenses (on the Dashboard) to see why.'));
     }
@@ -226,6 +237,7 @@
       el('tab-' + TAB_NAMES[i]).className = 'tab' + (TAB_NAMES[i] === name ? ' on' : '');
     }
     show('panel-expenses', name === 'expenses');
+    show('panel-refund', name === 'refund');
     if (name === 'home') { renderHome(); refreshHome(false); }
     if (name === 'expenses') { openExpenses(); }
     if (name === 'products') { renderProducts(); }
@@ -693,6 +705,7 @@
     line('pp-center', sheet.poweredBy);
     if (sheet.address) { line('pp-center', sheet.address); }
     if (sheet.phone) { line('pp-center', sheet.phone); }
+    if (sheet.title) { line('pp-title', sheet.title); }
     rule(false);
     for (i = 0; i < sheet.meta.length; i++) { line('', sheet.meta[i].label + ': ' + sheet.meta[i].value); }
     rule(false);
@@ -775,6 +788,7 @@
   }
 
   function updateReceiptStatus() {
+    updateRefundReceiptStatus();
     if (!ui.receiptId || !el('receipt-status')) { return; }
     var line = receiptStatusLine(ui.receiptId);
     say('receipt-status', line.kind, line.text);
@@ -1176,6 +1190,7 @@
     row('Cash', core.formatCents(s.cashCents));
     row('M-Pesa', core.formatCents(s.mpesaCents));
     row('Online (Paystack)', core.formatCents(s.onlineCents));
+    if (s.refunds > 0) { row('Refunds', s.refunds + (s.refunds === 1 ? ' refund' : ' refunds') + ' \u00b7 -' + core.formatCents(s.refundCents)); }
     row('Total (' + info.currency + ')', core.formatCents(s.totalCents), 'grand');
     setText('today-note', s.complete
       ? 'Only sales made on this iPad since midnight. Other devices are not included.'
@@ -1192,10 +1207,10 @@
       (function (entry) {
         var row = make('tr');
         var info = make('td', '', entry.receipt.saleNumber);
-        info.appendChild(make('div', 'sku', timeText(entry.receipt.createdAt) + ' · ' + methodLabel(entry.receipt.paymentMethod)));
+        info.appendChild(make('div', 'sku', timeText(entry.receipt.createdAt) + ' · ' + (entry.receipt.isRefund ? 'Refund of ' + entry.receipt.refundOfSaleNumber : methodLabel(entry.receipt.paymentMethod))));
         if (entry.status === 'rejected') { info.appendChild(make('div', 'sku', entry.error)); }
         row.appendChild(info);
-        row.appendChild(make('td', 'num', core.formatCents(entry.receipt.totalCents)));
+        row.appendChild(make('td', 'num', (entry.receipt.isRefund ? '-' : '') + core.formatCents(entry.receipt.totalCents)));
         var state = make('td', 'num');
         var label = entry.status === 'sent' ? ['sent', 'Sent'] : (entry.status === 'rejected' ? ['lost', 'NOT recorded'] : (entry.status === 'discarded' ? ['waiting', 'Removed'] : ['waiting', 'Waiting']));
         if (entry.payment === 'awaiting') { label = ['waiting', 'Awaiting payment']; }
@@ -1209,12 +1224,20 @@
           state.appendChild(make('div'));
           state.appendChild(printAgain);
         }
+        if (entry.status === 'sent' && !entry.receipt.isRefund && entry.payment !== 'awaiting' && entry.payment !== 'cancelled' && canRefund()) {
+          var refundIt = make('button', 'small secondary', 'Refund');
+          refundIt.type = 'button';
+          refundIt.style.marginTop = '6px';
+          refundIt.onclick = function () { openRefund(entry.receipt.saleId, 'sales'); };
+          state.appendChild(make('div'));
+          state.appendChild(refundIt);
+        }
         if (entry.status === 'rejected' && user && user.roleName === 'Admin') {
           var remove = make('button', 'small secondary', 'Remove');
           remove.type = 'button';
           remove.style.marginTop = '6px';
           remove.onclick = function () {
-            if (window.confirm('Remove this sale from the iPad? It is a real sale that the shop has NO record of. Only do this after the owner has dealt with it.')) {
+            if (window.confirm(entry.receipt.isRefund ? 'Remove this refund from the iPad? The shop has NO record of it. Only do this after the owner has dealt with it.' : 'Remove this sale from the iPad? It is a real sale that the shop has NO record of. Only do this after the owner has dealt with it.')) {
               core.discardRejected(entry.receipt.saleId);
               renderAll();
             }
@@ -1359,6 +1382,13 @@
     ui.expList = null;
     ui.expDay = null;
     ui.expToken += 1;
+    ui.refund = null;
+    ui.refundReceiptId = null;
+    el('refund-password').value = '';
+    el('refund-reason').value = '';
+    el('refund-lines').innerHTML = '';
+    el('refund-done').innerHTML = '';
+    if (ui.tab === 'refund') { ui.tab = 'home'; }
     el('exp-list').innerHTML = '';
     el('exp-refused').innerHTML = '';
     show('exp-form', false);
@@ -1702,7 +1732,17 @@
       var sale = report.sales[i];
       var saleSub = [sale.cashierName, capital(sale.saleType), reportMethodLabel(sale.paymentMethod), timeInReport(sale.createdAt, multiDay)];
       if (sale.refundedCents > 0) { saleSub.push(sale.refundedCents >= sale.totalCents ? 'Refunded' : 'Part refunded'); }
-      saleRows.push(reportRow(sale.itemNames || sale.saleNumber, saleSub.join(' \u00b7 '), money(sale.totalCents)));
+      var saleRow = reportRow(sale.itemNames || sale.saleNumber, saleSub.join(' \u00b7 '), money(sale.totalCents));
+      if (sale.id && canRefund() && !(sale.refundedCents >= sale.totalCents)) {
+        (function (saleId) {
+          var refundButton = make('button', 'small secondary', 'Refund');
+          refundButton.type = 'button';
+          refundButton.onclick = function () { openRefund(saleId, 'reports'); };
+          saleRow.lastChild.appendChild(make('div'));
+          saleRow.lastChild.appendChild(refundButton);
+        }(sale.id));
+      }
+      saleRows.push(saleRow);
     }
     var salesCard = reportCard('Sales', 'No paid sales for this period.', saleRows);
     if (report.salesTruncated) { salesCard.appendChild(make('p', 'muted', 'Only the latest ' + report.sales.length + ' of ' + report.transactionCount + ' sales are listed. The totals include all of them.')); }
@@ -2022,6 +2062,229 @@
     loadExpenseDay(ui.expDay);
     sendExpensesThenShow();
   };
+
+  // ---- refunds: the apps' Refund screen -------------------------------------------------------------------------------
+  // An owner (Admin) or a Manager opens a sale (from Reports, or the Sales tab), chooses how many of each item go back and
+  // whether they return to the shelf, gives a reason and types their own password again. NexaPOS only RECORDS the refund:
+  // the person pays the customer back by hand, and the screen says how.
+  function canRefund() {
+    return !!core.currentUser() && core.refundBlock() === null;
+  }
+
+  function openRefund(saleId, back) {
+    var current = { saleId: saleId, back: back, source: null, quantity: {}, keep: {}, busy: false, changed: false };
+    ui.refund = current;
+    ui.refundReceiptId = null;
+    showTab('refund');
+    show('refund-body', false);
+    show('refund-done', false);
+    el('refund-done').innerHTML = '';
+    el('refund-lines').innerHTML = '';
+    el('refund-reason').value = '';
+    el('refund-password').value = '';
+    say('refund-form-message', '', '');
+    say('refund-message', 'warn', 'Opening the sale...');
+    core.loadSaleForRefund(saleId, function (error, source) {
+      if (ui.refund !== current || !core.currentUser()) { return; }
+      if (error) { say('refund-message', error.code === 'offline' || error.code === 'waiting' ? 'warn' : 'bad', error.message); return; }
+      var blocked = core.whyNotRefundable(source);
+      if (blocked) { say('refund-message', 'warn', blocked); return; }
+      say('refund-message', '', '');
+      current.source = source;
+      renderRefund();
+      show('refund-body', true);
+    });
+  }
+
+  function refundLeft(item) {
+    var lines = ui.refund.source.lines;
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].itemId === item.id) { return item.quantity - lines[i].refunded; }
+    }
+    return item.quantity;
+  }
+
+  function refundChoices() {
+    var r = ui.refund;
+    var choices = [];
+    if (!r || !r.source) { return choices; }
+    for (var i = 0; i < r.source.items.length; i++) {
+      var item = r.source.items[i];
+      if (r.quantity[item.id] > 0) { choices.push({ itemId: item.id, quantity: r.quantity[item.id], restock: r.keep[item.id] !== false }); }
+    }
+    return choices;
+  }
+
+  /** How the customer is to be paid back, in words. */
+  function refundPayback(method, totalCents, cashCents) {
+    if (method === 'cash') { return 'Give the customer ' + money(totalCents) + ' in cash.'; }
+    if (method === 'paystack' && cashCents !== null && cashCents !== undefined) {
+      var parts = [];
+      if (cashCents > 0) { parts.push('give ' + money(cashCents) + ' in cash'); }
+      if (totalCents - cashCents > 0) { parts.push('send ' + money(totalCents - cashCents) + ' back by M-Pesa'); }
+      return 'Pay the customer back: ' + parts.join(' and ') + '.';
+    }
+    return 'Send ' + money(totalCents) + ' back to the customer by M-Pesa.';
+  }
+
+  function renderRefund() {
+    var r = ui.refund;
+    var source = r.source;
+    var sale = source.sale;
+    var sub = [sale.saleNumber, timeInReport(sale.createdAt, true), source.cashierName, reportMethodLabel(sale.paymentMethod), 'Total ' + money(sale.totalCents)];
+    if (sale.customerName && sale.customerName !== 'Walk-in customer') { sub.splice(3, 0, sale.customerName); }
+    if (source.refundCount > 0) { sub.push('already refunded ' + money(source.refunded.totalCents)); }
+    setText('refund-sub', sub.join(' \u00b7 '));
+    var box = el('refund-lines');
+    box.innerHTML = '';
+    for (var i = 0; i < source.items.length; i++) {
+      (function (item) {
+        var left = refundLeft(item);
+        var row = make('div', 'refline' + (left < 1 ? ' done' : ''));
+        var top = make('div', 'top');
+        top.appendChild(make('div', 'name', item.itemName));
+        top.appendChild(make('div', 'amount', money(item.unitPriceCents)));
+        row.appendChild(top);
+        row.appendChild(make('div', 'sku', 'Sold ' + item.quantity + ' \u00b7 already refunded ' + (item.quantity - left) + ' \u00b7 left ' + left));
+        if (left > 0) {
+          r.quantity[item.id] = r.quantity[item.id] || 0;
+          var stepper = make('div', 'stepper');
+          var minus = make('button', 'secondary', '\u2212');
+          minus.type = 'button';
+          minus.setAttribute('aria-label', 'One less');
+          var qty = make('span', 'qty', String(r.quantity[item.id]));
+          var plus = make('button', 'secondary', '+');
+          plus.type = 'button';
+          plus.setAttribute('aria-label', 'One more');
+          minus.onclick = function () { if (r.quantity[item.id] > 0) { r.quantity[item.id] -= 1; qty.textContent = String(r.quantity[item.id]); updateRefundTotals(); } };
+          plus.onclick = function () { if (r.quantity[item.id] < left) { r.quantity[item.id] += 1; qty.textContent = String(r.quantity[item.id]); updateRefundTotals(); } };
+          stepper.appendChild(minus);
+          stepper.appendChild(qty);
+          stepper.appendChild(plus);
+          if (item.productId) {
+            var keep = make('label', 'keep');
+            var box2 = document.createElement('input');
+            box2.type = 'checkbox';
+            box2.checked = r.keep[item.id] !== false;
+            box2.onclick = function () { r.keep[item.id] = box2.checked; };
+            keep.appendChild(box2);
+            keep.appendChild(document.createTextNode('Put back in stock'));
+            stepper.appendChild(keep);
+          }
+          row.appendChild(stepper);
+        }
+        box.appendChild(row);
+      }(source.items[i]));
+    }
+    updateRefundTotals();
+  }
+
+  function updateRefundTotals() {
+    var r = ui.refund;
+    var body = el('refund-totals');
+    body.innerHTML = '';
+    el('refund-payback').innerHTML = '';
+    say('refund-form-message', '', '');
+    var choices = refundChoices();
+    if (!choices.length) { return; }
+    var quote = core.quoteRefund(r.source, choices);
+    if (!quote.ok) { say('refund-form-message', 'warn', quote.message); return; }
+    function row(label, value, className) {
+      var tr = make('tr', className || '');
+      tr.appendChild(make('td', '', label));
+      tr.appendChild(make('td', 'num', value));
+      body.appendChild(tr);
+    }
+    row('Goods', money(quote.subtotalCents));
+    if (quote.discountCents > 0) { row('Discount given back', '-' + money(quote.discountCents)); }
+    row('Refund', money(quote.totalCents), 'grand');
+    var pay = make('div', 'notice ok', refundPayback(r.source.sale.paymentMethod, quote.totalCents, quote.cashCents));
+    pay.appendChild(make('div', 'sku', 'NexaPOS only records the refund; it does not send any money.'));
+    el('refund-payback').appendChild(pay);
+  }
+
+  el('refund-all').onclick = function () {
+    var r = ui.refund;
+    if (!r || !r.source) { return; }
+    for (var i = 0; i < r.source.items.length; i++) { r.quantity[r.source.items[i].id] = Math.max(refundLeft(r.source.items[i]), 0); }
+    renderRefund();
+  };
+  el('refund-clear').onclick = function () {
+    var r = ui.refund;
+    if (!r || !r.source) { return; }
+    for (var i = 0; i < r.source.items.length; i++) { r.quantity[r.source.items[i].id] = 0; }
+    renderRefund();
+  };
+
+  el('refund-submit').onclick = function () {
+    var r = ui.refund;
+    if (!r || !r.source || r.busy) { return; }
+    say('refund-form-message', '', '');
+    r.busy = true;
+    setBusy('refund-submit', true, 'Refunding...');
+    core.refundSale({ source: r.source, choices: refundChoices(), reason: el('refund-reason').value, password: el('refund-password').value }, function (result) {
+      r.busy = false;
+      setBusy('refund-submit', false, 'Refund');
+      if (ui.refund !== r || !core.currentUser()) { return; }
+      el('refund-password').value = '';
+      if (!result.ok) { say('refund-form-message', 'bad', result.message); return; }
+      r.changed = true;
+      showRefundReceipt(result.receipt);
+      core.flush(function (error) {
+        ui.lastSyncProblem = error ? error.message : '';
+        if (!core.currentUser()) { route(); return; }
+        renderBanner('till-sales');
+        updateRefundReceiptStatus();
+        renderSales();
+      });
+    });
+  };
+
+  function showRefundReceipt(receipt) {
+    ui.refundReceiptId = receipt.saleId;
+    show('refund-body', false);
+    var box = el('refund-done');
+    box.innerHTML = '';
+    var sale = ui.refund.source.sale;
+    var cash = receipt.cashBackCents === undefined ? null : receipt.cashBackCents;
+    box.appendChild(make('div', 'notice ok', 'Refund recorded on this iPad. ' + refundPayback(sale.paymentMethod, receipt.totalCents, cash)));
+    var paper = make('div', 'paper');
+    drawSheet(paper, core.receiptSheet(receipt, false));
+    box.appendChild(paper);
+    var statusBox = make('div');
+    statusBox.id = 'refund-receipt-status';
+    box.appendChild(statusBox);
+    var printIt = make('button', 'outlined wide', 'Print receipt');
+    printIt.type = 'button';
+    printIt.onclick = function () { printReceipt(receipt, false); };
+    var done = make('button', 'big', 'Done');
+    done.type = 'button';
+    done.onclick = leaveRefund;
+    box.appendChild(done);
+    box.appendChild(printIt);
+    show('refund-done', true);
+    updateRefundReceiptStatus();
+  }
+
+  function updateRefundReceiptStatus() {
+    if (!ui.refundReceiptId || !el('refund-receipt-status')) { return; }
+    var line = receiptStatusLine(ui.refundReceiptId);
+    say('refund-receipt-status', line.kind, line.text);
+  }
+
+  function leaveRefund() {
+    var r = ui.refund;
+    var back = r ? r.back : 'reports';
+    var changed = !!r && r.changed;
+    ui.refund = null;
+    ui.refundReceiptId = null;
+    el('refund-password').value = '';
+    el('refund-done').innerHTML = '';
+    show('refund-done', false);
+    showTab(back === 'sales' ? 'sales' : 'reports');
+    if (back !== 'sales' && changed && ui.report) { el('report-view').onclick(); }
+  }
+  el('refund-back').onclick = leaveRefund;
 
   // ---- a newer version of the till ---------------------------------------------------------------------------
   // An iPad can keep this page open for days. Every few minutes, and whenever the page comes back to the front or the

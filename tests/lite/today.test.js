@@ -98,7 +98,7 @@ function sell(t, qty, method) {
 
 test('a day with no sales is all zeros, and complete', function (done) {
   till(function (t) {
-    assert.deepStrictEqual(t.core.todaySummary(), { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, complete: true });
+    assert.deepStrictEqual(t.core.todaySummary(), { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, refunds: 0, refundCents: 0, complete: true });
     done();
   });
 });
@@ -109,7 +109,7 @@ test('sales are added up by how they were paid, with the item count', function (
     sell(t, 1, 'cash');
     sell(t, 3, 'mpesa_manual');
     sell(t, 1, 'mpesa_manual');
-    assert.deepStrictEqual(t.core.todaySummary(), { sales: 4, items: 7, totalCents: 42000, cashCents: 18000, mpesaCents: 24000, onlineCents: 0, complete: true });
+    assert.deepStrictEqual(t.core.todaySummary(), { sales: 4, items: 7, totalCents: 42000, cashCents: 18000, mpesaCents: 24000, onlineCents: 0, refunds: 0, refundCents: 0, complete: true });
     done();
   });
 });
@@ -132,7 +132,7 @@ test('yesterday is not today: the day starts at the iPad\'s midnight', function 
     sell(t, 1, 'cash'); // exactly midnight
     t.clock.now = AFTERNOON;
     sell(t, 2, 'mpesa_manual');
-    assert.deepStrictEqual(t.core.todaySummary(), { sales: 2, items: 3, totalCents: 18000, cashCents: 6000, mpesaCents: 12000, onlineCents: 0, complete: true });
+    assert.deepStrictEqual(t.core.todaySummary(), { sales: 2, items: 3, totalCents: 18000, cashCents: 6000, mpesaCents: 12000, onlineCents: 0, refunds: 0, refundCents: 0, complete: true });
     t.clock.now = new Date(2026, 2, 8, 9, 0, 0).getTime(); // next morning: all of it is yesterday
     assert.strictEqual(t.core.todaySummary().sales, 0);
     done();
@@ -147,7 +147,7 @@ test('an online payment counts only once it is paid, and never if it was cancell
       t.mode.verify = 'success';
       t.core.checkOnline(function (checkError) {
         assert.ifError(checkError);
-        assert.deepStrictEqual(t.core.todaySummary(), { sales: 1, items: 1, totalCents: 6000, cashCents: 0, mpesaCents: 0, onlineCents: 6000, complete: true });
+        assert.deepStrictEqual(t.core.todaySummary(), { sales: 1, items: 1, totalCents: 6000, cashCents: 0, mpesaCents: 0, onlineCents: 6000, refunds: 0, refundCents: 0, complete: true });
         t.mode.verify = 'ongoing';
         t.core.startOnline({ cart: [{ productId: SODA, name: 'Soda', unitPriceCents: 6000, quantity: 1 }], saleType: 'retail', mpesaPhone: '0712 345 678', customerPhone: '0712 345 678' }, function (error2, second) {
           assert.ifError(error2);
@@ -175,7 +175,7 @@ test('a sale the shop refused is not counted, and neither is one the owner remov
       assert.strictEqual(t.core.todaySummary().sales, 2, 'saved on the iPad, not sent yet: still a real sale');
       t.core.flush(function () {
         assert.deepStrictEqual(t.core.history().map(function (h) { return h.status; }), ['rejected', 'sent']);
-        assert.deepStrictEqual(t.core.todaySummary(), { sales: 1, items: 1, totalCents: 6000, cashCents: 6000, mpesaCents: 0, onlineCents: 0, complete: true });
+        assert.deepStrictEqual(t.core.todaySummary(), { sales: 1, items: 1, totalCents: 6000, cashCents: 6000, mpesaCents: 0, onlineCents: 0, refunds: 0, refundCents: 0, complete: true });
         t.core.logout();
         t.core.login('owner', 'Passw0rd!', function (error) {
           assert.ifError(error);
