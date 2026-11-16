@@ -649,7 +649,15 @@
           cb(problem('server', 'The shop server sent a report this till cannot read. Try again, or ask the owner to update the server.'));
           return;
         }
-        var out = { range: range, waitingHere: outboxSummary().pending, salesTruncated: !!report.salesTruncated, expensesTruncated: !!report.expensesTruncated, sales: report.sales, expenses: report.expenses };
+        // Refunds: a server that does not know them yet sends none, which reads as "nothing refunded".
+        var refunds = isList(report.refunds) ? report.refunds : [];
+        var out = {
+          range: range, waitingHere: outboxSummary().pending, salesTruncated: !!report.salesTruncated, expensesTruncated: !!report.expensesTruncated,
+          sales: report.sales, expenses: report.expenses,
+          refunds: refunds, refundsTruncated: !!report.refundsTruncated,
+          refundsTotalCents: whole(report.refundsTotalCents) ? report.refundsTotalCents : 0,
+          refundCount: whole(report.refundCount) ? report.refundCount : refunds.length
+        };
         for (var k = 0; k < keys.length; k++) {
           out[keys[k]] = report[keys[k]];
         }
@@ -908,6 +916,8 @@
           for (var j = 0; j < keys.length; j++) {
             day[keys[j]] = list[d][keys[j]];
           }
+          // what went back that day (a server that does not know refunds sends none); salesTotalCents is already net of it
+          day.refundsCents = whole(list[d].refundsCents) ? list[d].refundsCents : 0;
           days.push(day);
         }
         var today = days[days.length - 1];

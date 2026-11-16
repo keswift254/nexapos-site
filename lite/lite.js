@@ -1531,7 +1531,7 @@
     var stock = core.stockFigures();
     function shown(text) { return ui.hideFigures ? '******' : text; }
     setText('stat-sales', d ? shown(money(d.today.salesTotalCents)) : '–');
-    setText('stat-sales-sub', d ? (d.today.transactionCount === 1 ? '1 transaction' : d.today.transactionCount + ' transactions') : '');
+    setText('stat-sales-sub', d ? (d.today.transactionCount === 1 ? '1 transaction' : d.today.transactionCount + ' transactions') + (!ui.hideFigures && d.today.refundsCents > 0 ? ' \u00b7 refunds ' + money(d.today.refundsCents) : '') : '');
     drawChange('stat-sales-pct', d ? d.salesChange : null);
     setText('stat-profit', d ? shown(money(d.today.netProfitCents)) : '–');
     setText('stat-profit-sub', d ? 'Gross ' + shown(money(d.today.grossProfitCents)) : '');
@@ -1683,6 +1683,7 @@
     }
     var metrics = make('div', 'metrics');
     metrics.appendChild(metricTile('Paid Sales', money(report.salesTotalCents)));
+    if (report.refunds.length > 0) { metrics.appendChild(metricTile('Refunds', money(report.refundsTotalCents))); }
     metrics.appendChild(metricTile('Total Cash Received', money(report.cashReceivedCents)));
     metrics.appendChild(metricTile('Total Paid by M-Pesa', money(report.mpesaCents)));
     metrics.appendChild(metricTile('Total Expenses', money(report.expensesTotalCents)));
@@ -1699,13 +1700,30 @@
     var saleRows = [];
     for (var i = 0; i < report.sales.length; i++) {
       var sale = report.sales[i];
-      saleRows.push(reportRow(sale.itemNames || sale.saleNumber,
-        [sale.cashierName, capital(sale.saleType), reportMethodLabel(sale.paymentMethod), timeInReport(sale.createdAt, multiDay)].join(' · '),
-        money(sale.totalCents)));
+      var saleSub = [sale.cashierName, capital(sale.saleType), reportMethodLabel(sale.paymentMethod), timeInReport(sale.createdAt, multiDay)];
+      if (sale.refundedCents > 0) { saleSub.push(sale.refundedCents >= sale.totalCents ? 'Refunded' : 'Part refunded'); }
+      saleRows.push(reportRow(sale.itemNames || sale.saleNumber, saleSub.join(' \u00b7 '), money(sale.totalCents)));
     }
     var salesCard = reportCard('Sales', 'No paid sales for this period.', saleRows);
     if (report.salesTruncated) { salesCard.appendChild(make('p', 'muted', 'Only the latest ' + report.sales.length + ' of ' + report.transactionCount + ' sales are listed. The totals include all of them.')); }
     box.appendChild(salesCard);
+
+    if (report.refunds.length > 0) {
+      var refundRows = [];
+      for (var f = 0; f < report.refunds.length; f++) {
+        var refund = report.refunds[f];
+        var refundSub = [refund.originalSaleNumber ? 'Refund of ' + refund.originalSaleNumber : 'Refund', refund.processedByName, reportMethodLabel(refund.paymentMethod), timeInReport(refund.createdAt, multiDay)];
+        var refundRow = reportRow((refund.itemNames || refund.saleNumber) + (refund.reason ? ' (' + refund.reason + ')' : ''), refundSub.join(' \u00b7 '), '-' + money(refund.totalCents));
+        refundRows.push(refundRow);
+      }
+      var refundsCard = reportCard('Refunds', 'No refunds for this period.', refundRows);
+      if (report.refundsTruncated) { refundsCard.appendChild(make('p', 'muted', 'Only the latest ' + report.refunds.length + ' of ' + report.refundCount + ' refunds are listed. The total includes all of them.')); }
+      var refundTotalLine = make('div', 'grandrow');
+      refundTotalLine.appendChild(make('span', '', 'Total Refunds'));
+      refundTotalLine.appendChild(make('span', '', '-' + money(report.refundsTotalCents)));
+      refundsCard.appendChild(refundTotalLine);
+      box.appendChild(refundsCard);
+    }
 
     var expenseRows = [];
     for (var e = 0; e < report.expenses.length; e++) {
@@ -1788,6 +1806,16 @@
       var sale = report.sales[i];
       pair('', sale.itemNames || sale.saleNumber, money(sale.totalCents));
       line('', '   ' + [sale.cashierName, reportMethodLabel(sale.paymentMethod), timeInReport(sale.createdAt, multiDay)].join(' / '));
+    }
+    if (report.refunds.length > 0) {
+      rule(true);
+      line('pp-bold', 'Refunds');
+      for (i = 0; i < report.refunds.length; i++) {
+        var refund = report.refunds[i];
+        pair('', (refund.itemNames || refund.saleNumber), '-' + money(refund.totalCents));
+        line('', '   ' + [refund.reason, refund.processedByName, timeInReport(refund.createdAt, multiDay)].filter(function (part) { return !!part; }).join(' / '));
+      }
+      pair('pp-bold', 'Total Refunds', '-' + money(report.refundsTotalCents));
     }
     rule(true);
     line('pp-bold', 'Expenses');

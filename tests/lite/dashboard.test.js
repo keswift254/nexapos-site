@@ -173,6 +173,19 @@ test('the dashboard asks for the 7 local days, exactly, with this device\'s key 
   });
 });
 
+test('what went back is read for each day (the sales figure is already net of it), and missing means none', function (done) {
+  till(function () { return { status: 200, body: { success: true, days: days({ 6: { refundsCents: 4500 }, 5: { refundsCents: 'x' } }) } }; }, function (t) {
+    t.core.loadDashboard(function (error, d) {
+      assert.ifError(error);
+      assert.strictEqual(d.today.refundsCents, 4500);
+      assert.strictEqual(d.yesterday.refundsCents, 0, 'not a whole number: ignored');
+      assert.strictEqual(d.last7[0].refundsCents, 0, 'a day with no refunds figure');
+      assert.strictEqual(d.today.salesTotalCents, 7000, 'left as the server sent it: already net');
+      done();
+    });
+  });
+});
+
 test('today, yesterday, the changes and the 7-day list are laid out for the cards and the chart', function (done) {
   var answer = days({ 5: { salesTotalCents: 20000, netProfitCents: 5000, transactionCount: 4 }, 6: { salesTotalCents: 30000, netProfitCents: 4000, grossProfitCents: 6000, expensesTotalCents: 2000, transactionCount: 9 } });
   till(function () { return { status: 200, body: { success: true, days: answer } }; }, function (t) {

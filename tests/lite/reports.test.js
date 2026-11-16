@@ -230,6 +230,48 @@ test('a full list says nothing is cut off', function (done) {
   });
 });
 
+test('refunds come back with the report: the total, the count, the list, and whether it was cut short', function (done) {
+  var refunds = [
+    { id: 'r2', saleNumber: 'R-2', originalSaleNumber: 'S-1', reason: 'Bent', processedByName: 'Otieno', paymentMethod: 'cash', totalCents: 3000, createdAt: '2026-11-12T12:00:00.000Z', itemNames: 'Soda x1' },
+    { id: 'r1', saleNumber: 'R-1', originalSaleNumber: null, reason: null, processedByName: 'Wanjiru', paymentMethod: 'mpesa_manual', totalCents: 2000, createdAt: '2026-11-12T11:00:00.000Z', itemNames: null }
+  ];
+  till(function () { return { status: 200, body: { success: true, report: goodReport({ refundsTotalCents: 5000, refundCount: 7, refundsTruncated: true, refunds: refunds }) } }; }, function (t) {
+    t.core.loadReport(Core.reportRange('day', { date: '2026-11-12' }), function (error, report) {
+      assert.ifError(error);
+      assert.strictEqual(report.refundsTotalCents, 5000);
+      assert.strictEqual(report.refundCount, 7, 'the count is the server\'s, not the length of the cut list');
+      assert.strictEqual(report.refundsTruncated, true);
+      assert.deepStrictEqual(report.refunds, refunds, 'the list exactly as the server sent it');
+      done();
+    });
+  });
+});
+
+test('a server that does not know refunds yet is read as nothing refunded', function (done) {
+  till(function () { return { status: 200, body: { success: true, report: goodReport() } }; }, function (t) {
+    t.core.loadReport(Core.reportRange('day', { date: '2026-11-12' }), function (error, report) {
+      assert.ifError(error);
+      assert.strictEqual(report.refundsTotalCents, 0);
+      assert.strictEqual(report.refundCount, 0);
+      assert.strictEqual(report.refundsTruncated, false);
+      assert.deepStrictEqual(report.refunds, []);
+      done();
+    });
+  });
+});
+
+test('a refunds figure that is not a whole number or a list that is not a list is ignored, not trusted', function (done) {
+  till(function () { return { status: 200, body: { success: true, report: goodReport({ refundsTotalCents: 'lots', refundCount: 1.5, refunds: 'x' }) } }; }, function (t) {
+    t.core.loadReport(Core.reportRange('day', { date: '2026-11-12' }), function (error, report) {
+      assert.ifError(error);
+      assert.strictEqual(report.refundsTotalCents, 0);
+      assert.strictEqual(report.refundCount, 0);
+      assert.deepStrictEqual(report.refunds, []);
+      done();
+    });
+  });
+});
+
 test('sales on this iPad that have not reached the shop are counted, so the screen can say they are missing', function (done) {
   till(function () { return { status: 200, body: { success: true, report: goodReport() } }; }, function (t) {
     t.core.loadReport(Core.reportRange('day', { date: '2026-11-12' }), function (error, report) {
