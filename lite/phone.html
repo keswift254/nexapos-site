@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Set up this phone - NexaPOS</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #FBF8FF; color: #1B1B21; font-family: -apple-system, Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+    .page { max-width: 560px; margin: 0 auto; padding: 20px 16px 48px; }
+    h1 { font-size: 24px; margin: 8px 0 8px; }
+    h2 { font-size: 18px; margin: 0 0 8px; }
+    p { line-height: 1.45; font-size: 16px; margin: 0 0 10px; }
+    .muted { color: #46464F; font-size: 14px; }
+    .card { background: #F5F2FA; border-radius: 12px; padding: 16px; margin: 14px 0; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 1px 3px 1px rgba(0,0,0,.1); }
+    .value { font-family: Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; background: #fff; border: 1px solid #C7C5D0; border-radius: 8px; padding: 10px; margin: 4px 0 8px; -webkit-user-select: all; user-select: all; }
+    .label { font-size: 12px; font-weight: 600; letter-spacing: .4px; color: #46464F; margin-top: 10px; }
+    button { font: inherit; font-size: 15px; font-weight: 500; border: 0; border-radius: 20px; min-height: 40px; padding: 0 18px; background: #515B92; color: #fff; margin: 0 8px 8px 0; }
+    button.secondary { background: #E0E1F9; color: #434659; }
+    button:disabled { opacity: .5; }
+    ol { padding-left: 22px; margin: 0; }
+    li { line-height: 1.45; font-size: 16px; margin: 0 0 10px; }
+    code { font-family: Menlo, Consolas, monospace; font-size: 14px; background: #fff; border: 1px solid #C7C5D0; border-radius: 6px; padding: 1px 6px; }
+    .notice { border-radius: 12px; padding: 10px 14px; margin: 8px 0; font-size: 14px; line-height: 1.4; }
+    .notice.ok { background: #DEE0FF; color: #394379; }
+    .notice.warn { background: #FFF1D6; color: #5E4200; }
+    .notice.bad { background: #FFDAD6; color: #93000A; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Set up this phone</h1>
+    <p>This phone will pass your shop's M-Pesa payment messages on to NexaPOS, so your tills can check a customer's M-Pesa code against the real message.</p>
+    <p class="muted">Only payments you receive are kept. Your balance, and anything you send or withdraw, is dropped unread.</p>
+
+    <div id="no-key" class="notice warn hidden">This page has no key. On your till open <b>Settings &gt; M-Pesa Till Phone &gt; Set up a phone</b>, then scan the code it shows with this phone's camera.</div>
+
+    <div id="with-key" class="hidden">
+      <div class="card">
+        <h2>1. Your address and key</h2>
+        <p class="muted">You will paste these two into the shortcut below. Keep the key to yourself: it is what lets this phone report payments to your shop.</p>
+        <div class="label">ADDRESS</div>
+        <div class="value" id="address"></div>
+        <button type="button" id="copy-address">Copy address</button>
+        <div class="label">KEY</div>
+        <div class="value" id="key"></div>
+        <button type="button" id="copy-key">Copy key</button>
+        <button type="button" id="check" class="secondary">Check the key</button>
+        <div id="said"></div>
+      </div>
+
+      <div class="card">
+        <h2>2. On an iPhone: make the shortcut</h2>
+        <ol>
+          <li>Open the <b>Shortcuts</b> app and tap <b>+</b> to make a new shortcut.</li>
+          <li>Tap <b>Edit</b>, then <b>Automation</b>, and choose <b>Message</b>.</li>
+          <li>In the block that appears, set <b>Message contains</b> to <code>Confirmed</code></li>
+          <li>In <b>Search</b> at the bottom, type <code>Get Contents of URL</code> and add it.</li>
+          <li>Tap its <b>URL</b> and paste the <b>address</b> from step 1.</li>
+          <li>Open that block's extra settings (the small arrow). Set <b>Method</b> to <b>POST</b> and <b>Request Body</b> to <b>JSON</b>.</li>
+          <li>Add a <b>Text</b> field. Name it <code>key</code> and paste the <b>key</b> from step 1 as its value.</li>
+          <li>Add another <b>Text</b> field. Name it <code>text</code>. For its value choose the message that was received (shown as <b>Shortcut Input</b> or <b>Message</b>).</li>
+          <li>Tap the <b>&#9432;</b> button, then <b>Privacy</b>, and turn on <b>Allow Running When Locked</b>.</li>
+          <li>Tap <b>Done</b>.</li>
+        </ol>
+        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Confirmed and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step.</p>
+        <p class="muted">If a step looks different on your phone, send a screenshot to NexaPOS support.</p>
+      </div>
+
+      <div class="card">
+        <h2>3. Try it</h2>
+        <p>Check your M-Pesa balance, so that a message arrives. Within a minute, the till shows this phone with <b>Last message</b> and the time, under Settings &gt; M-Pesa Till Phone.</p>
+        <p>When a customer pays your till or paybill, the payment shows on the till under <b>Payments received</b> a few seconds after the message reaches this phone.</p>
+        <p class="muted">Keep this phone switched on and connected to the internet during shop hours.</p>
+      </div>
+
+      <div class="card">
+        <h2>On an Android phone</h2>
+        <p class="muted">Passing messages on from an Android phone will be part of the NexaPOS app. It is not ready yet.</p>
+      </div>
+
+      <p class="muted">Close this page when you have finished. The key is not shown again.</p>
+    </div>
+  </div>
+  <script>
+    // The page a shop's phone opens (by scanning the code on the till) to be set up as the shop's "M-Pesa till phone".
+    // The key arrives after the # of the address, which a browser never sends to a server. It is moved out of the address
+    // straight away (so it is not left in the address bar or the history) and kept for this tab only, so that reloading the
+    // page does not lose it. Plain ES5: the phone may be an old one.
+    (function () {
+      var API = 'https://sync.nexapos.cc/index.php';
+      var ADDRESS = API + '?action=payment_inbox_ingest';
+      var STORE = 'nexapos-phone-key';
+      function el(id) { return document.getElementById(id); }
+      function show(id, visible) { el(id).className = el(id).className.replace(/\s*\bhidden\b/g, '') + (visible ? '' : ' hidden'); }
+      function say(kind, text) {
+        var box = el('said');
+        box.innerHTML = '';
+        if (!text) { return; }
+        var note = document.createElement('div');
+        note.className = 'notice ' + kind;
+        note.appendChild(document.createTextNode(text));
+        box.appendChild(note);
+      }
+
+      var key = '';
+      var fromLink = /^#k=(npk_[a-f0-9]{48})$/.exec(window.location.hash || '');
+      if (fromLink) {
+        key = fromLink[1];
+        try { window.sessionStorage.setItem(STORE, key); } catch (e) { /* private browsing: the key stays in the address */ }
+        try {
+          if (window.sessionStorage.getItem(STORE) === key && window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        } catch (e2) { /* the address keeps the key, which still works */ }
+      } else {
+        try { key = window.sessionStorage.getItem(STORE) || ''; } catch (e3) { key = ''; }
+        if (!/^npk_[a-f0-9]{48}$/.test(key)) { key = ''; }
+      }
+
+      if (!key) {
+        show('no-key', true);
+        return;
+      }
+      show('with-key', true);
+      el('address').appendChild(document.createTextNode(ADDRESS));
+      el('key').appendChild(document.createTextNode(key));
+
+      function copy(text, what) {
+        function fallback() {
+          var field = document.createElement('textarea');
+          field.value = text;
+          field.setAttribute('readonly', 'readonly');
+          field.style.position = 'fixed';
+          field.style.left = '-1000px';
+          document.body.appendChild(field);
+          field.select();
+          var done = false;
+          try { field.setSelectionRange(0, text.length); done = document.execCommand('copy'); } catch (e) { done = false; }
+          document.body.removeChild(field);
+          say(done ? 'ok' : 'warn', done ? what + ' copied. Paste it into the shortcut.' : 'Could not copy. Press and hold the text above to copy it.');
+        }
+        if (window.navigator.clipboard && window.navigator.clipboard.writeText) {
+          window.navigator.clipboard.writeText(text).then(function () { say('ok', what + ' copied. Paste it into the shortcut.'); }, fallback);
+        } else {
+          fallback();
+        }
+      }
+      el('copy-address').onclick = function () { copy(ADDRESS, 'Address'); };
+      el('copy-key').onclick = function () { copy(key, 'Key'); };
+
+      // Sends a line that is not a payment: the shop answers "not a payment" when the key is good, and the till then shows
+      // this phone as heard from.
+      el('check').onclick = function () {
+        var button = el('check');
+        button.disabled = true;
+        say('', '');
+        var request = new XMLHttpRequest();
+        request.open('POST', ADDRESS, true);
+        request.setRequestHeader('Content-Type', 'application/json');
+        request.timeout = 20000;
+        function failed() {
+          button.disabled = false;
+          say('warn', 'Could not reach NexaPOS. Check this phone\'s internet connection and try again.');
+        }
+        request.onerror = failed;
+        request.ontimeout = failed;
+        request.onload = function () {
+          button.disabled = false;
+          if (request.status === 200) {
+            say('ok', 'The key works. Your till now shows this phone as heard from.');
+          } else if (request.status === 401) {
+            say('bad', 'This key is not right, or the phone was removed on the till. Set the phone up again on the till.');
+          } else if (request.status === 429) {
+            say('warn', 'Too many messages from this phone in the last hour. Try again later.');
+          } else {
+            say('warn', 'NexaPOS could not check the key just now (error ' + request.status + '). Try again in a little while.');
+          }
+        };
+        request.send(JSON.stringify({ key: key, text: 'NexaPOS key check' }));
+      };
+    }());
+  </script>
+</body>
+</html>

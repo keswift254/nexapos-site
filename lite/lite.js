@@ -244,7 +244,7 @@
     if (name === 'settings') { renderSettings(); }
     if (name === 'support') { renderSupport(); }
     if (name !== 'support') { stopSupportPoll(); closeSheet(); }
-    if (name !== 'settings') { stopLicenseTicker(); }
+    if (name !== 'settings') { stopLicenseTicker(); closeTillPhonePage(); }
     if (name === 'home') { renderHome(); refreshHome(false); }
     if (name === 'expenses') { openExpenses(); }
     if (name === 'products') { renderProducts(); }
@@ -1387,6 +1387,8 @@
     ui.expDay = null;
     ui.expToken += 1;
     clearSupportState();
+    closeTillPhonePage();
+    el('settings-page').innerHTML = '';
     ui.refund = null;
     ui.refundReceiptId = null;
     el('refund-password').value = '';
@@ -2809,6 +2811,7 @@
   var SETTINGS_PAGES = [
     { id: 'security', title: 'Security & Privacy', admin: false },
     { id: 'business', title: 'Business & Receipts', admin: true },
+    { id: 'tillphone', title: 'M-Pesa Till Phone', admin: true },
     { id: 'sync', title: 'Sync & This iPad', admin: true },
     { id: 'region', title: 'Date, Time & Region', admin: true },
     { id: 'license', title: 'My License', admin: false },
@@ -2937,6 +2940,355 @@
     licenseTimer = window.setInterval(function () { if (ui.tab === 'settings' && el('settings-page-view').className.indexOf('hidden') < 0) { draw(); } else { stopLicenseTicker(); } }, 1000);
   }
 
+  // ---- M-Pesa Till Phone: the phone that passes the shop's M-Pesa payment messages on ---------------------------------------------
+  // Customers pay the shop's own till or paybill; the phone that gets Safaricom's message passes it on to the shop. Here an
+  // administrator sets that phone up (with their own password, which the shop server checks), sees the phones that are set up,
+  // removes one, and watches the payments arrive. A new phone's key is shown ONCE, with a code the phone's camera can scan.
+  var tillPhone = { timer: null, phones: null, max: 5, payments: null, removing: 0, key: null, token: 0 };
+  var TILL_PHONE_REFRESH_MS = 20000;
+
+  /** Stops the page's timer and forgets what it showed - above all a key that was on show. */
+  function closeTillPhonePage() {
+    if (!tillPhone) { return; } // called while the page is still starting up
+    if (tillPhone.timer) { window.clearInterval(tillPhone.timer); tillPhone.timer = null; }
+    tillPhone.phones = null;
+    tillPhone.payments = null;
+    tillPhone.removing = 0;
+    tillPhone.key = null;
+    tillPhone.token += 1; // answers still on their way belong to a page that is gone
+  }
+
+  function tillPhoneOpen() {
+    return ui.tab === 'settings' && !!el('tillphone-phones') && !!core.currentUser();
+  }
+
+  /** The page a phone opens (by scanning the code) to be set up: the key travels after the #, which is never sent to a server. */
+  function phonePageLink(key) {
+    return window.location.protocol + '//' + window.location.host + window.location.pathname.replace(/[^\/]*$/, '') + 'phone.html#k=' + key;
+  }
+
+  /** A value to copy by hand: the text (selectable) and a Copy button. */
+  function copyRow(labelText, value, saidId) {
+    var wrap = make('div');
+    wrap.appendChild(make('label', '', labelText));
+    var line = make('div', 'deviceid');
+    line.appendChild(make('div', 'idtext keytext', value));
+    var copy = make('button', 'secondary small', 'Copy');
+    copy.type = 'button';
+    copy.onclick = function () {
+      var done = copyToClipboard(value);
+      say(saidId, done ? 'ok' : 'warn', done ? labelText + ' copied' : 'Could not copy. Press and hold the text to copy it.');
+      window.setTimeout(function () { if (el(saidId)) { say(saidId, '', ''); } }, 2500);
+    };
+    line.appendChild(copy);
+    wrap.appendChild(line);
+    return wrap;
+  }
+
+  function drawTillPhones() {
+    var list = el('tillphone-phones');
+    if (!list) { return; }
+    list.innerHTML = '';
+    if (tillPhone.phones === null) {
+      list.appendChild(make('p', 'muted', 'Loading...'));
+      return;
+    }
+    if (tillPhone.phones.length === 0) {
+      list.appendChild(make('p', 'muted', 'No phone is set up yet.'));
+    }
+    for (var i = 0; i < tillPhone.phones.length; i++) {
+      (function (phone) {
+        var row = make('div', 'rowline');
+        var a = make('div', 'a');
+        a.appendChild(make('b', '', phone.label));
+        a.appendChild(make('div', 'sku', 'Added' + (phone.addedBy ? ' by ' + phone.addedBy : '') + (phone.addedAt ? ' on ' + timeText(phone.addedAt) : '')));
+        a.appendChild(make('div', 'sku', phone.lastMessageAt ? 'Last message: ' + timeText(phone.lastMessageAt) : 'No message from this phone yet'));
+        var r = make('div', 'r');
+        var remove = make('button', 'secondary small', 'Remove');
+        remove.type = 'button';
+        remove.onclick = function () { tillPhone.removing = phone.id; say('tillphone-message', '', ''); drawTillPhones(); };
+        r.appendChild(remove);
+        row.appendChild(a);
+        row.appendChild(r);
+        list.appendChild(row);
+        if (tillPhone.removing === phone.id) {
+          var ask = make('div', 'notice warn');
+          ask.appendChild(make('div', '', 'Remove "' + phone.label + '"? Its key stops working at once: the phone must be set up again to pass messages on.'));
+          ask.appendChild(make('label', '', 'Your password'));
+          var password = document.createElement('input');
+          password.type = 'password';
+          password.id = 'tillphone-remove-password';
+          password.setAttribute('autocomplete', 'off');
+          ask.appendChild(password);
+          var yes = make('button', 'big', 'Remove this phone');
+          yes.type = 'button';
+          yes.id = 'tillphone-remove-confirm';
+          var token = tillPhone.token;
+          yes.onclick = function () {
+            setBusy('tillphone-remove-confirm', true, 'Removing...');
+            core.removeTillPhone({ phoneId: phone.id, password: password.value }, function (result) {
+              if (token !== tillPhone.token || !tillPhoneOpen()) { return; }
+              if (!result.ok) {
+                if (el('tillphone-remove-confirm')) { setBusy('tillphone-remove-confirm', false, 'Remove this phone'); }
+                password.value = '';
+                say('tillphone-message', result.code === 'offline' ? 'warn' : 'bad', result.message);
+                return;
+              }
+              tillPhone.removing = 0;
+              tillPhone.phones = result.phones;
+              drawTillPhones();
+              say('tillphone-message', 'ok', 'Phone removed. Its key no longer works.');
+            });
+          };
+          ask.appendChild(yes);
+          var no = make('button', 'secondary wide', 'Keep it');
+          no.type = 'button';
+          no.onclick = function () { tillPhone.removing = 0; drawTillPhones(); };
+          ask.appendChild(no);
+          list.appendChild(ask);
+        }
+      }(tillPhone.phones[i]));
+    }
+    var full = tillPhone.phones.length >= tillPhone.max;
+    if (el('tillphone-add')) { el('tillphone-add').disabled = full; }
+    if (full) { list.appendChild(make('p', 'muted', 'This shop has ' + tillPhone.max + ' phones set up, which is the most. Remove one to set up another.')); }
+  }
+
+  function drawTillPayments() {
+    var list = el('tillphone-payments');
+    if (!list) { return; }
+    list.innerHTML = '';
+    if (tillPhone.payments === null) {
+      list.appendChild(make('p', 'muted', 'Loading...'));
+      return;
+    }
+    if (tillPhone.payments.length === 0) {
+      list.appendChild(make('p', 'muted', 'Nothing yet. A payment shows here a few seconds after its M-Pesa message reaches the phone.'));
+      return;
+    }
+    for (var i = 0; i < tillPhone.payments.length; i++) {
+      var p = tillPhone.payments[i];
+      var row = make('div', 'rowline');
+      var a = make('div', 'a');
+      var r = make('div', 'r');
+      if (p.messageReceived) {
+        a.appendChild(make('b', '', p.payerName || 'M-Pesa payment'));
+        var facts = [p.code];
+        if (p.payerPhone) { facts.push(p.payerPhone); }
+        if (p.accountRef) { facts.push('Account ' + p.accountRef); }
+        facts.push(p.paidAtText || (p.receivedAt ? timeText(p.receivedAt) : ''));
+        if (p.phoneLabel) { facts.push('via ' + p.phoneLabel); }
+        a.appendChild(make('div', 'sku', facts.join(' \u00b7 ')));
+        a.appendChild(make('div', 'sku', p.used ? 'Used on sale ' + p.used.saleNumber + (p.used.amountCents !== null && p.amountCents !== null && p.used.amountCents !== p.amountCents ? ' (the sale was ' + money(p.used.amountCents) + ')' : '') : 'Not used on a sale yet'));
+        r.appendChild(document.createTextNode(p.amountCents === null ? 'Amount not read' : money(p.amountCents)));
+      } else {
+        a.appendChild(make('b', '', 'Code typed at a till'));
+        a.appendChild(make('div', 'sku', [p.code, p.used ? 'Sale ' + p.used.saleNumber : '', p.used && p.used.usedAt ? timeText(p.used.usedAt) : ''].join(' \u00b7 ')));
+        a.appendChild(make('div', 'sku', 'No M-Pesa message has arrived for this code.'));
+        r.appendChild(document.createTextNode(p.used && p.used.amountCents !== null ? money(p.used.amountCents) : ''));
+      }
+      row.appendChild(a);
+      row.appendChild(r);
+      list.appendChild(row);
+    }
+  }
+
+  /** Shows the new phone's key - once - with the code its camera scans. */
+  function drawTillPhoneKey() {
+    var card = el('tillphone-key');
+    if (!card) { return; }
+    card.innerHTML = '';
+    show('tillphone-key', !!tillPhone.key);
+    if (!tillPhone.key) { return; }
+    var made = tillPhone.key;
+    var link = phonePageLink(made.key);
+    card.appendChild(make('h2', '', 'Set up "' + made.phone.label + '"'));
+    card.appendChild(make('div', 'notice warn', 'This key is shown only once. Finish setting the phone up before you leave this page.'));
+    card.appendChild(make('p', '', 'On the phone that gets your M-Pesa payment messages, open the camera and point it at this code. It opens a page with the steps.'));
+    var drawn = false;
+    if (typeof window.qrcode === 'function') {
+      try {
+        var qr = window.qrcode(0, 'M');
+        qr.addData(link);
+        qr.make();
+        var image = document.createElement('img');
+        image.className = 'qr';
+        image.alt = 'Code to scan with the phone';
+        image.src = qr.createDataURL(6, 2);
+        var holder = make('div', 'qrbox');
+        holder.appendChild(image);
+        card.appendChild(holder);
+        drawn = true;
+      } catch (e) {
+        drawn = false;
+      }
+    }
+    if (!drawn) { card.appendChild(make('div', 'notice warn', 'The code could not be drawn on this iPad. Use the address and key below.')); }
+    var open = make('a', 'btn secondary', 'Open the steps on this device');
+    open.href = link;
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    card.appendChild(open);
+    card.appendChild(make('p', 'muted', 'Or copy these to the phone by hand:'));
+    var said = make('div');
+    said.id = 'tillphone-copied';
+    card.appendChild(copyRow('Address', made.address, 'tillphone-copied'));
+    card.appendChild(copyRow('Key', made.key, 'tillphone-copied'));
+    card.appendChild(said);
+    var done = make('button', 'big', 'Done - hide the key');
+    done.type = 'button';
+    done.onclick = function () {
+      if (!window.confirm('Hide the key?\nIt cannot be shown again. If the phone is not set up yet, you will have to remove it and set it up again.')) { return; }
+      tillPhone.key = null;
+      drawTillPhoneKey();
+    };
+    card.appendChild(done);
+  }
+
+  function loadTillPhone(quiet) {
+    var token = tillPhone.token;
+    core.tillPhones(function (error, result) {
+      if (token !== tillPhone.token || !tillPhoneOpen()) { return; }
+      if (error) {
+        if (!quiet || tillPhone.phones === null) { say('tillphone-message', error.code === 'offline' ? 'warn' : 'bad', error.message); }
+        if (tillPhone.phones === null) { tillPhone.phones = []; drawTillPhones(); }
+        return;
+      }
+      tillPhone.max = result.max;
+      // a password being typed to remove a phone is not wiped by the list updating itself
+      if (tillPhone.removing !== 0 && tillPhone.phones !== null) { return; }
+      tillPhone.phones = result.phones;
+      drawTillPhones();
+    });
+    core.tillPayments(24, function (error, result) {
+      if (token !== tillPhone.token || !tillPhoneOpen()) { return; }
+      if (el('tillphone-refresh')) { setBusy('tillphone-refresh', false, 'Refresh'); }
+      if (error) {
+        if (!quiet) { say('tillphone-pay-message', error.code === 'offline' ? 'warn' : 'bad', error.message); }
+        if (tillPhone.payments === null) { tillPhone.payments = []; drawTillPayments(); }
+        return;
+      }
+      say('tillphone-pay-message', '', '');
+      tillPhone.payments = result.payments;
+      drawTillPayments();
+    });
+  }
+
+  function renderTillPhonePage(box) {
+    closeTillPhonePage();
+    box.innerHTML = '';
+    box.appendChild(make('h2', '', 'M-Pesa Till Phone'));
+
+    var intro = make('div', 'card');
+    intro.appendChild(make('p', '', 'Customers pay your own M-Pesa till or paybill, so the money reaches you straight away. The phone that gets Safaricom\'s payment message passes it on to NexaPOS, and your tills can then check a customer\'s M-Pesa code against the real message.'));
+    intro.appendChild(make('p', 'muted', 'Only payments you receive are kept. Your balance, and anything you send or withdraw, is dropped unread.'));
+    box.appendChild(intro);
+
+    var phones = make('div', 'card');
+    phones.appendChild(make('h2', '', 'Phones'));
+    var list = make('div');
+    list.id = 'tillphone-phones';
+    phones.appendChild(list);
+    var message = make('div');
+    message.id = 'tillphone-message';
+    phones.appendChild(message);
+    var add = make('button', 'big', 'Set up a phone');
+    add.type = 'button';
+    add.id = 'tillphone-add';
+    phones.appendChild(add);
+
+    var form = make('div', 'hidden');
+    form.id = 'tillphone-form';
+    form.appendChild(make('label', '', 'Name for this phone'));
+    var label = document.createElement('input');
+    label.type = 'text';
+    label.id = 'tillphone-label';
+    label.maxLength = 60;
+    label.value = 'Shop phone';
+    form.appendChild(label);
+    form.appendChild(make('label', '', 'Your password'));
+    var password = document.createElement('input');
+    password.type = 'password';
+    password.id = 'tillphone-password';
+    password.setAttribute('autocomplete', 'off');
+    form.appendChild(password);
+    form.appendChild(make('p', 'muted', 'Your own NexaPOS password, to show it is you. Only an administrator can set a phone up.'));
+    var create = make('button', 'big', 'Create the key');
+    create.type = 'button';
+    create.id = 'tillphone-create';
+    form.appendChild(create);
+    var cancel = make('button', 'secondary wide', 'Cancel');
+    cancel.type = 'button';
+    form.appendChild(cancel);
+    phones.appendChild(form);
+    box.appendChild(phones);
+
+    var keyCard = make('div', 'card hidden');
+    keyCard.id = 'tillphone-key';
+    box.appendChild(keyCard);
+
+    var pay = make('div', 'card');
+    pay.appendChild(make('h2', '', 'Payments received'));
+    pay.appendChild(make('p', 'muted', 'The last 24 hours, newest first. The list updates by itself.'));
+    var payMessage = make('div');
+    payMessage.id = 'tillphone-pay-message';
+    pay.appendChild(payMessage);
+    var payments = make('div');
+    payments.id = 'tillphone-payments';
+    pay.appendChild(payments);
+    var refresh = make('button', 'secondary small', 'Refresh');
+    refresh.type = 'button';
+    refresh.id = 'tillphone-refresh';
+    refresh.style.marginTop = '10px';
+    pay.appendChild(refresh);
+    box.appendChild(pay);
+
+    var token = tillPhone.token;
+    add.onclick = function () {
+      say('tillphone-message', '', '');
+      show('tillphone-form', true);
+      show('tillphone-add', false);
+      password.value = '';
+    };
+    cancel.onclick = function () {
+      password.value = '';
+      show('tillphone-form', false);
+      show('tillphone-add', true);
+    };
+    create.onclick = function () {
+      say('tillphone-message', '', '');
+      setBusy('tillphone-create', true, 'Checking with the shop...');
+      core.addTillPhone({ label: label.value, password: password.value }, function (result) {
+        password.value = '';
+        if (token !== tillPhone.token || !tillPhoneOpen()) { return; }
+        setBusy('tillphone-create', false, 'Create the key');
+        if (!result.ok) {
+          say('tillphone-message', result.code === 'offline' ? 'warn' : 'bad', result.message);
+          return;
+        }
+        tillPhone.key = result;
+        show('tillphone-form', false);
+        show('tillphone-add', true);
+        label.value = 'Shop phone';
+        drawTillPhoneKey();
+        loadTillPhone(true);
+        if (el('tillphone-key').scrollIntoView) { el('tillphone-key').scrollIntoView(); }
+      });
+    };
+    refresh.onclick = function () {
+      setBusy('tillphone-refresh', true, 'Refreshing...');
+      loadTillPhone(false);
+    };
+
+    drawTillPhones();
+    drawTillPayments();
+    loadTillPhone(false);
+    tillPhone.timer = window.setInterval(function () {
+      if (!tillPhoneOpen()) { closeTillPhonePage(); return; }
+      loadTillPhone(true);
+    }, TILL_PHONE_REFRESH_MS);
+  }
+
   /** Puts text on the iPad's clipboard (the long way, which old Safari allows from a tap). */
   function copyToClipboard(text) {
     var field = document.createElement('textarea');
@@ -2971,7 +3323,7 @@
     menu.appendChild(make('p', 'muted', 'Payments, backups, devices and users are managed in NexaPOS on the shop\'s PC or phone.'));
   }
   el('settings-back').onclick = function () { showTab('home'); };
-  el('settings-page-back').onclick = function () { stopLicenseTicker(); renderSettings(); };
+  el('settings-page-back').onclick = function () { stopLicenseTicker(); closeTillPhonePage(); el('settings-page').innerHTML = ''; renderSettings(); };
 
   function openSettingsPage(id) {
     var box = el('settings-page');
@@ -3075,6 +3427,10 @@
       } else {
         card.appendChild(make('div', 'notice warn', 'This iPad\'s clock is about ' + minutes + (minutes === 1 ? ' minute ' : ' minutes ') + (differenceMs > 0 ? 'behind' : 'ahead of') + (differenceMs > 0 ? ' the shop\'s.' : ' the shop\'s.') + ' Sales and receipts are stamped with the iPad\'s clock, so set it right: iPad Settings > General > Date & Time > Set Automatically.'));
       }
+    } else if (id === 'tillphone') {
+      box.removeChild(card);
+      renderTillPhonePage(box);
+      return;
     } else if (id === 'license') {
       box.removeChild(card);
       renderLicensePage(box);

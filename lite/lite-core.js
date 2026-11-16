@@ -817,6 +817,205 @@
       return { url: baseUrl + '?action=support_attachment&id=' + encodeURIComponent(attachmentId), headers: { 'Authorization': 'Bearer ' + state.device.apiKey } };
     }
 
+    // ---- "Manual Till/Paybill": the phone that passes the shop's M-Pesa payment messages on -------------------------------------
+    // Customers pay the shop's own till or paybill. The phone that gets Safaricom's "payment received" SMS passes each one on to the
+    // shop (an iPhone through a Shortcut, an Android phone through the app), and every till can then see what really arrived.
+    // Setting a phone up, or removing one, is for an administrator, who types their own password again - and it is the SHOP SERVER
+    // that checks it, not this iPad: whoever holds a phone's key could pass on a made-up payment.
+    var phoneBusy = false;
+
+    /** Why phones cannot be set up or removed here right now, or null. */
+    function tillPhoneBlock() {
+      if (!supportSignedIn()) {
+        return 'This device has not joined a shop yet.';
+      }
+      if (!session) {
+        return 'Log in first.';
+      }
+      if (session.roleName !== 'Admin') {
+        return 'Only an administrator of the shop can set up or remove a phone.';
+      }
+      return null;
+    }
+
+    function tillPhone(raw) {
+      return {
+        id: whole(raw.id) ? raw.id : 0,
+        label: typeof raw.label === 'string' ? raw.label : '',
+        addedBy: typeof raw.added_by === 'string' ? raw.added_by : '',
+        addedAt: supportTime(raw.added_at),
+        lastMessageAt: supportTime(raw.last_message_at)
+      };
+    }
+
+    function tillPhoneList(list) {
+      var phones = [];
+      for (var i = 0; i < list.length; i++) {
+        var phone = tillPhone(list[i] || {});
+        if (phone.id > 0) {
+          phones.push(phone);
+        }
+      }
+      return phones;
+    }
+
+    /** One M-Pesa code as the shop knows it: its message (if it arrived) and the sale it was used on (if any). */
+    function tillPayment(raw) {
+      var used = raw.used && typeof raw.used === 'object'
+        ? { saleNumber: typeof raw.used.sale_number === 'string' ? raw.used.sale_number : '', amountCents: whole(raw.used.amount_cents) ? raw.used.amount_cents : null, usedAt: supportTime(raw.used['at']) }
+        : null;
+      return {
+        code: typeof raw.code === 'string' ? raw.code : '',
+        messageReceived: raw.message_received === true,
+        amountCents: whole(raw.amount_cents) ? raw.amount_cents : null,
+        payerName: typeof raw.payer_name === 'string' ? raw.payer_name : '',
+        payerPhone: typeof raw.payer_phone === 'string' ? raw.payer_phone : '',
+        accountRef: typeof raw.account_ref === 'string' ? raw.account_ref : '',
+        paidAtText: typeof raw.paid_at_text === 'string' ? raw.paid_at_text : '',
+        receivedAt: supportTime(raw.received_at),
+        phoneLabel: typeof raw.phone_label === 'string' ? raw.phone_label : '',
+        used: used
+      };
+    }
+
+    /** The shop server's own words are kept when it gives a reason (wrong password, too many phones...); the rest is put plainly. */
+    function tillPhoneFailure(error, body, status) {
+      var reasoned = !!(body && typeof body.reason === 'string' && body.reason);
+      if (status === 404 && !reasoned) {
+        return problem('unavailable', 'The shop server cannot do this yet. Ask the owner to update it.');
+      }
+      if (error.code === 'unauthorized' || (error.code === 'forbidden' && !reasoned)) {
+        return problem(error.code, 'This iPad is not allowed to do this. Ask the owner to check Connected devices.');
+      }
+      return problem(reasoned ? body.reason : error.code, error.message);
+    }
+
+    /** The address a phone sends each message to. */
+    function tillPhoneAddress() {
+      return baseUrl + '?action=payment_inbox_ingest';
+    }
+
+    /** The shop's phones: cb(error) or cb(null, {phones: [{id, label, addedBy, addedAt, lastMessageAt}], max}). */
+    function tillPhones(cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      call('GET', 'payment_inbox_sources', null, function (error, body, status) {
+        if (error) {
+          cb(tillPhoneFailure(error, body, status));
+          return;
+        }
+        if (!body || !isList(body.phones)) {
+          cb(problem('server', 'The shop server sent a list of phones this till cannot read. Try again later.'));
+          return;
+        }
+        cb(null, { phones: tillPhoneList(body.phones), max: whole(body.max_phones) && body.max_phones > 0 ? body.max_phones : 5 });
+      });
+    }
+
+    /**
+     * request: {label, password (the administrator's own)} -> cb({ok:false, message, code}) | cb({ok:true, key, phone, address}).
+     * The key is given this ONCE: the shop keeps only a fingerprint of it, so it cannot be shown again.
+     */
+    function addTillPhone(request, cb) {
+      var blocked = tillPhoneBlock();
+      if (blocked) {
+        cb({ ok: false, message: blocked, code: 'input' });
+        return;
+      }
+      if (phoneBusy) {
+        cb({ ok: false, message: 'Wait a moment.', code: 'busy' });
+        return;
+      }
+      if (!request || !request.password) {
+        cb({ ok: false, message: 'Enter your password.', code: 'input' });
+        return;
+      }
+      phoneBusy = true;
+      var who = session;
+      call('POST', 'payment_inbox_add_source', { label: String(request.label || ''), user_id: session.id, password: String(request.password) }, function (error, body, status) {
+        phoneBusy = false;
+        if (error) {
+          var failure = tillPhoneFailure(error, body, status);
+          cb({ ok: false, message: failure.message, code: failure.code });
+          return;
+        }
+        var phone = body && body.phone && typeof body.phone === 'object' ? tillPhone(body.phone) : null;
+        if (!body || typeof body.key !== 'string' || !/^npk_[a-f0-9]{48}$/.test(body.key) || !phone || phone.id <= 0) {
+          cb({ ok: false, message: 'The shop server sent a key this till cannot read. Remove the new phone from the list and set it up again.', code: 'server' });
+          return;
+        }
+        if (session !== who) {
+          // The key is for the administrator who asked, not for whoever is at the till now.
+          cb({ ok: false, message: 'You were logged out before the key arrived. Log in, remove the phone that was just added, and set it up again.', code: 'logged_out' });
+          return;
+        }
+        cb({ ok: true, key: body.key, phone: phone, address: tillPhoneAddress() });
+      });
+    }
+
+    /** request: {phoneId, password (the administrator's own)} -> cb({ok:false, message, code}) | cb({ok:true, phones}). */
+    function removeTillPhone(request, cb) {
+      var blocked = tillPhoneBlock();
+      if (blocked) {
+        cb({ ok: false, message: blocked, code: 'input' });
+        return;
+      }
+      if (phoneBusy) {
+        cb({ ok: false, message: 'Wait a moment.', code: 'busy' });
+        return;
+      }
+      if (!request || !whole(request.phoneId) || request.phoneId <= 0) {
+        cb({ ok: false, message: 'Choose the phone to remove.', code: 'input' });
+        return;
+      }
+      if (!request.password) {
+        cb({ ok: false, message: 'Enter your password.', code: 'input' });
+        return;
+      }
+      phoneBusy = true;
+      call('POST', 'payment_inbox_remove_source', { phone_id: request.phoneId, user_id: session.id, password: String(request.password) }, function (error, body, status) {
+        phoneBusy = false;
+        if (error) {
+          var failure = tillPhoneFailure(error, body, status);
+          cb({ ok: false, message: failure.message, code: failure.code });
+          return;
+        }
+        cb({ ok: true, phones: body && isList(body.phones) ? tillPhoneList(body.phones) : [] });
+      });
+    }
+
+    /**
+     * What the shop's phones passed on, and which codes its tills used, in the last [hours] hours - newest first.
+     * cb(error) or cb(null, {payments: [{code, messageReceived, amountCents, payerName, payerPhone, accountRef, paidAtText, receivedAt, phoneLabel, used}], phones}).
+     */
+    function tillPayments(hours, cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      var span = whole(hours) && hours >= 1 && hours <= 72 ? hours : 24;
+      call('GET', 'payment_inbox_list&hours=' + span, null, function (error, body, status) {
+        if (error) {
+          cb(tillPhoneFailure(error, body, status));
+          return;
+        }
+        if (!body || !isList(body.payments)) {
+          cb(problem('server', 'The shop server sent payments this till cannot read. Try again later.'));
+          return;
+        }
+        var payments = [];
+        for (var i = 0; i < body.payments.length; i++) {
+          var payment = tillPayment(body.payments[i] || {});
+          if (payment.code) {
+            payments.push(payment);
+          }
+        }
+        cb(null, { payments: payments, phones: whole(body.phones) ? body.phones : 0 });
+      });
+    }
+
     // ---- refunds: the apps' Refund screen, for any sale of the shop ------------------------------------------------------------
     // An owner (Admin) or a Manager can refund, and must type their own password again first (as in the apps). The sale is read
     // from the shop (with what earlier refunds already gave back), the refund is saved on this iPad as its own sale with negative
@@ -2177,6 +2376,12 @@
       supportClose: supportClose,
       supportPhotoRequest: supportPhotoRequest,
       supportRepliesWaiting: function () { return supportWaiting; },
+      tillPhoneBlock: tillPhoneBlock,
+      tillPhoneAddress: tillPhoneAddress,
+      tillPhones: tillPhones,
+      addTillPhone: addTillPhone,
+      removeTillPhone: removeTillPhone,
+      tillPayments: tillPayments,
       refundBlock: refundBlock,
       loadSaleForRefund: loadSaleForRefund,
       quoteRefund: function (source, choices) { return options.sale.quoteRefund(source, choices); },
