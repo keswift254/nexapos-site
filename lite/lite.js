@@ -210,6 +210,7 @@
     show('screen-till', true);
     setText('till-shop', status.shopName || 'NexaPOS Lite');
     setText('till-user', user.name + ' (' + user.roleName + ')');
+    setText('home-who', user.name);
     setText('till-updated', updatedText(status));
     licenseNotice('till-license', status);
     renderAll();
@@ -238,6 +239,10 @@
     }
     show('panel-expenses', name === 'expenses');
     show('panel-refund', name === 'refund');
+    show('panel-settings', name === 'settings');
+    show('panel-support', name === 'support');
+    if (name === 'settings') { renderSettings(); }
+    if (name === 'support') { renderSupport(); }
     if (name === 'home') { renderHome(); refreshHome(false); }
     if (name === 'expenses') { openExpenses(); }
     if (name === 'products') { renderProducts(); }
@@ -1388,7 +1393,7 @@
     el('refund-reason').value = '';
     el('refund-lines').innerHTML = '';
     el('refund-done').innerHTML = '';
-    if (ui.tab === 'refund') { ui.tab = 'home'; }
+    if (ui.tab === 'refund' || ui.tab === 'settings' || ui.tab === 'support') { ui.tab = 'home'; }
     el('exp-list').innerHTML = '';
     el('exp-refused').innerHTML = '';
     show('exp-form', false);
@@ -2105,6 +2110,84 @@
     loadExpenseDay(ui.expDay);
     sendExpensesThenShow();
   };
+
+  // ---- the top bar: the apps' buttons ------------------------------------------------------------------------------------
+  // Home, Refresh, Reports, Settings, Support and Log out, as icons; Search (on the dashboard) opens the inventory with the cursor in
+  // its search box. Settings here only SHOWS the shop and this iPad (nothing is changed from the till); Support is a call and a chat.
+  var barMessageTimer = null;
+  function barNote(kind, text) {
+    say('bar-message', kind, text);
+    if (barMessageTimer) { window.clearTimeout(barMessageTimer); }
+    barMessageTimer = text ? window.setTimeout(function () { say('bar-message', '', ''); }, 7000) : null;
+  }
+
+  /** Sends what is waiting, brings the shop's data up to date and reloads the dashboard figures. */
+  function refreshEverything(buttonIds, messageId) {
+    if (ui.syncing) { return; }
+    ui.syncing = true;
+    var i;
+    for (i = 0; i < buttonIds.length; i++) { el(buttonIds[i]).disabled = true; }
+    core.sync(function (error) {
+      ui.syncing = false;
+      for (i = 0; i < buttonIds.length; i++) { el(buttonIds[i]).disabled = false; }
+      ui.lastSyncProblem = error ? error.message : '';
+      if (!core.currentUser()) { route(); return; }
+      setText('till-updated', updatedText(core.getStatus()));
+      renderAll();
+      if (messageId === 'bar-message') {
+        barNote(error ? (error.code === 'offline' ? 'warn' : 'bad') : 'ok', error ? error.message : 'Up to date.');
+      } else {
+        say(messageId, error ? (error.code === 'offline' ? 'warn' : 'bad') : 'ok', error ? error.message : 'Up to date.');
+      }
+      if (ui.tab === 'settings') { renderSettings(); }
+      refreshHome(true);
+    });
+  }
+  el('bar-home').onclick = function () { ui.lowOnly = false; showTab('home'); };
+  el('bar-refresh').onclick = function () { refreshEverything(['bar-refresh', 'settings-update'], 'bar-message'); };
+  el('bar-reports').onclick = function () { showTab('reports'); };
+  el('bar-settings').onclick = function () { showTab('settings'); };
+  el('bar-support').onclick = function () { showTab('support'); };
+  el('settings-back').onclick = function () { showTab('home'); };
+  el('support-back').onclick = function () { showTab('home'); };
+  el('settings-update').onclick = function () { refreshEverything(['bar-refresh', 'settings-update'], 'settings-message'); };
+  el('home-search').onclick = function () {
+    ui.lowOnly = false;
+    showTab('products');
+    var box = el('search');
+    if (box) { box.focus(); }
+  };
+
+  function renderSettings() {
+    var user = core.currentUser();
+    var status = core.getStatus();
+    var info = core.shopInfo();
+    var body = el('settings-rows');
+    body.innerHTML = '';
+    function row(label, value) {
+      var tr = make('tr');
+      tr.appendChild(make('td', '', label));
+      tr.appendChild(make('td', 'num', value));
+      body.appendChild(tr);
+    }
+    row('Shop', info.name);
+    if (info.address) { row('Address', info.address); }
+    if (info.phone) { row('Phone', info.phone); }
+    row('Currency', info.currency);
+    row('This iPad', status.deviceLabel || '-');
+    row('Signed in as', user ? user.name + ' (' + user.roleName + ')' : '-');
+    row('Shop data updated', status.fetchedAt ? timeText(status.fetchedAt) : 'not yet');
+    row('Licence', status.license && status.license.message ? status.license.message : '-');
+    var waiting = status.pendingSales + status.pendingExpenses + status.pendingRefunds;
+    row('Waiting to be sent', waiting === 0 ? 'nothing' : status.pendingSales + ' sales, ' + status.pendingExpenses + ' expenses, ' + status.pendingRefunds + ' refunds');
+    row('NexaPOS Lite version', el('version-label').innerText || '-');
+  }
+
+  function renderSupport() {
+    var info = core.shopInfo();
+    var status = core.getStatus();
+    setText('support-quote', info.name + ' \u00b7 ' + (status.deviceLabel || 'Lite till') + ' \u00b7 NexaPOS Lite ' + (el('version-label').innerText || ''));
+  }
 
   // ---- refunds: the apps' Refund screen -------------------------------------------------------------------------------
   // An owner (Admin) or a Manager opens a sale (from Reports, or the Sales tab), chooses how many of each item go back and
