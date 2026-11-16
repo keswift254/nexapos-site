@@ -1499,58 +1499,101 @@
     box.appendChild(make('span', 'pct ' + change.direction, arrow + Math.abs(change.percent) + '%'));
   }
 
-  /** "Last 7 Days": Sales, Expenses and Net Profit as three lines, one point per day. */
+  /** 12500 -> "12.5K", 1200000 -> "1.2M": the short numbers down the side of the chart, as in the apps. */
+  function compactNumber(value) {
+    var sign = value < 0 ? '-' : '';
+    var n = Math.abs(value);
+    function trimmed(x) { return String(Math.round(x * 10) / 10); }
+    if (n >= 1000000) { return sign + trimmed(n / 1000000) + 'M'; }
+    if (n >= 1000) { return sign + trimmed(n / 1000) + 'K'; }
+    return sign + String(Math.round(n));
+  }
+
+  /**
+   * "Last 7 Days", like the apps' chart: for each day three bars side by side - Sales, Expenses and Net Profit - on a scale
+   * from the lowest profit to the highest figure, with a heavier line at zero. Touching a day shows its exact figures.
+   */
   function drawTrend(days) {
     var box = el('trend-chart');
     box.innerHTML = '';
-    if (!days || days.length < 2) {
+    setText('trend-detail', 'Tap a day for the exact figures');
+    if (!days || days.length < 1) {
       box.appendChild(make('p', 'muted', 'Loading...'));
       return;
     }
     var W = 600;
-    var H = 230;
-    var left = 28;
-    var right = 28;
-    var top = 14;
-    var bottom = 40;
-    var series = [['salesTotalCents', '#515B92'], ['expensesTotalCents', '#F44336'], ['netProfitCents', '#4CAF50']];
-    var low = 0;
+    var H = 250;
+    var left = 54;
+    var right = 10;
+    var top = 12;
+    var bottom = 36;
+    var series = [['salesTotalCents', '#515B92', 'Sales'], ['expensesTotalCents', '#F44336', 'Expenses'], ['netProfitCents', '#4CAF50', 'Net Profit']];
     var high = 0;
+    var low = 0;
     var i;
     var s;
     for (i = 0; i < days.length; i++) {
-      for (s = 0; s < series.length; s++) {
-        low = Math.min(low, days[i][series[s][0]]);
-        high = Math.max(high, days[i][series[s][0]]);
-      }
+      for (s = 0; s < series.length; s++) { high = Math.max(high, days[i][series[s][0]]); }
+      low = Math.min(low, days[i].netProfitCents);
     }
     var empty = high === 0 && low === 0;
-    if (high === low) { high = low + 1; }
-    function xAt(index) { return left + (W - left - right) * index / (days.length - 1); }
-    function yAt(value) { return top + (H - top - bottom) * (high - value) / (high - low); }
-    var root = svgNode('svg', { 'class': 'chart', viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Sales, expenses and net profit for the last 7 days' });
+    // The apps' scale: 20% of headroom above the highest bar, and below the lowest loss; 100.00 when there is nothing at all.
+    var maxY = high <= 0 ? 10000 : high * 1.2;
+    var minY = low >= 0 ? 0 : low * 1.2;
+    function yAt(value) { return top + (H - top - bottom) * (maxY - value) / (maxY - minY); }
+    var groupWidth = (W - left - right) / days.length;
+    var barWidth = Math.min(20, groupWidth / 4);
+    var gap = barWidth / 5;
+    var rootNode = svgNode('svg', { 'class': 'chart', viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Sales, expenses and net profit for the last 7 days, as bars' });
     for (i = 0; i <= 4; i++) {
-      var gy = top + (H - top - bottom) * i / 4;
-      root.appendChild(svgNode('line', { x1: String(left), x2: String(W - right), y1: String(gy), y2: String(gy), stroke: '#E4E1E9', 'stroke-width': '1' }));
-    }
-    if (low < 0) {
-      root.appendChild(svgNode('line', { x1: String(left), x2: String(W - right), y1: String(yAt(0)), y2: String(yAt(0)), stroke: '#C7C5D0', 'stroke-width': '1.5' }));
-    }
-    for (s = 0; s < series.length; s++) {
-      var points = [];
-      for (i = 0; i < days.length; i++) { points.push(xAt(i).toFixed(1) + ',' + yAt(days[i][series[s][0]]).toFixed(1)); }
-      root.appendChild(svgNode('polyline', { points: points.join(' '), fill: 'none', stroke: series[s][1], 'stroke-width': '4', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
-      for (i = 0; i < days.length; i++) {
-        root.appendChild(svgNode('circle', { cx: xAt(i).toFixed(1), cy: yAt(days[i][series[s][0]]).toFixed(1), r: '5', fill: series[s][1] }));
+      var value = maxY - (maxY - minY) * i / 4;
+      var gy = yAt(value);
+      var zero = Math.abs(value) < 0.5;
+      rootNode.appendChild(svgNode('line', { x1: String(left), x2: String(W - right), y1: String(gy), y2: String(gy), stroke: zero ? '#767680' : '#E4E1E9', 'stroke-width': zero ? '2' : '1' }));
+      if (!ui.hideFigures) {
+        var axis = svgNode('text', { x: String(left - 6), y: String(gy + 6), 'text-anchor': 'end', 'font-size': '18', fill: '#46464F' });
+        axis.appendChild(document.createTextNode(compactNumber(value / 100)));
+        rootNode.appendChild(axis);
       }
     }
+    var zeroY = yAt(0);
+    var shownGroup = null;
     for (i = 0; i < days.length; i++) {
+      var groupLeft = left + groupWidth * i;
+      var barsWidth = series.length * barWidth + (series.length - 1) * gap;
+      var first = groupLeft + (groupWidth - barsWidth) / 2;
+      var highlight = svgNode('rect', { x: String(groupLeft + 2), y: String(top), width: String(groupWidth - 4), height: String(H - top - bottom), fill: '#515B92', 'fill-opacity': '0', rx: '4' });
+      rootNode.appendChild(highlight);
+      for (s = 0; s < series.length; s++) {
+        var v = days[i][series[s][0]];
+        var y = yAt(v);
+        var barTop = Math.min(y, zeroY);
+        var barHeight = Math.abs(zeroY - y);
+        if (v !== 0 && barHeight < 1) { barHeight = 1; }
+        if (barHeight > 0) {
+          rootNode.appendChild(svgNode('rect', { x: (first + s * (barWidth + gap)).toFixed(1), y: barTop.toFixed(1), width: barWidth.toFixed(1), height: barHeight.toFixed(1), fill: series[s][1], rx: '2' }));
+        }
+      }
       var date = parseDayText(days[i].date);
-      var label = svgNode('text', { x: xAt(i).toFixed(1), y: String(H - 10), 'text-anchor': 'middle', 'font-size': '22', fill: '#46464F' });
+      var label = svgNode('text', { x: (groupLeft + groupWidth / 2).toFixed(1), y: String(H - 10), 'text-anchor': 'middle', 'font-size': '20', fill: '#46464F' });
       label.appendChild(document.createTextNode(i === days.length - 1 ? 'Today' : (date ? WEEKDAYS[date.getDay()] : '')));
-      root.appendChild(label);
+      rootNode.appendChild(label);
+      // a transparent cover over the whole day: easy to touch on an iPad, and it shows that day's exact figures below the chart
+      var cover = svgNode('rect', { x: String(groupLeft), y: String(top), width: String(groupWidth), height: String(H - top), fill: '#000', 'fill-opacity': '0', style: 'cursor:pointer' });
+      (function (day, mark) {
+        cover.onclick = function () {
+          if (shownGroup) { shownGroup.setAttribute('fill-opacity', '0'); }
+          mark.setAttribute('fill-opacity', '0.1');
+          shownGroup = mark;
+          var when = parseDayText(day.date);
+          var title = when ? WEEKDAYS[when.getDay()] + ', ' + when.getDate() + ' ' + MONTHS3[when.getMonth()] : day.date;
+          function figure(cents) { return ui.hideFigures ? '******' : money(cents); }
+          setText('trend-detail', title + ' \u00b7 Sales ' + figure(day.salesTotalCents) + ' \u00b7 Expenses ' + figure(day.expensesTotalCents) + ' \u00b7 Net Profit ' + figure(day.netProfitCents));
+        };
+      }(days[i], highlight));
+      rootNode.appendChild(cover);
     }
-    box.appendChild(root);
+    box.appendChild(rootNode);
     if (empty) { box.appendChild(make('p', 'muted', 'No sales or expenses in the last 7 days.')); }
   }
 
@@ -2259,9 +2302,13 @@
     printIt.onclick = function () { printReceipt(receipt, false); };
     var done = make('button', 'big', 'Done');
     done.type = 'button';
-    done.onclick = leaveRefund;
+    done.onclick = function () { leaveRefund(); };
     box.appendChild(done);
     box.appendChild(printIt);
+    var toDashboard = make('button', 'secondary wide', 'Dashboard');
+    toDashboard.type = 'button';
+    toDashboard.onclick = function () { leaveRefund('home'); };
+    box.appendChild(toDashboard);
     show('refund-done', true);
     updateRefundReceiptStatus();
   }
@@ -2272,7 +2319,7 @@
     say('refund-receipt-status', line.kind, line.text);
   }
 
-  function leaveRefund() {
+  function leaveRefund(target) {
     var r = ui.refund;
     var back = r ? r.back : 'reports';
     var changed = !!r && r.changed;
@@ -2281,10 +2328,11 @@
     el('refund-password').value = '';
     el('refund-done').innerHTML = '';
     show('refund-done', false);
+    if (target === 'home') { showTab('home'); return; }
     showTab(back === 'sales' ? 'sales' : 'reports');
     if (back !== 'sales' && changed && ui.report) { el('report-view').onclick(); }
   }
-  el('refund-back').onclick = leaveRefund;
+  el('refund-back').onclick = function () { leaveRefund(); };
 
   // ---- a newer version of the till ---------------------------------------------------------------------------
   // An iPad can keep this page open for days. Every few minutes, and whenever the page comes back to the front or the
