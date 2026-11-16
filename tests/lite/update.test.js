@@ -98,7 +98,7 @@ test('the real page has a build label and every script it loads carries a versio
   assert.ok(tags.length >= 5, 'the till loads its scripts');
   tags.forEach(function (tag) { assert.ok(/\.js\?v=\d+/.test(tag), 'script without ?v= : ' + tag); });
   var signature = Core.pageSignature(html);
-  ['lite.js', 'lite-core.js', 'lite-sale.js', 'qrcode.js', 'bcrypt.min.js'].forEach(function (name) {
+  ['lite.js', 'lite-core.js', 'lite-sale.js', 'lite-barcode.js', 'qrcode.js', 'bcrypt.min.js'].forEach(function (name) {
     assert.ok(signature.indexOf(name + '=') > 0, name + ' is part of the version');
   });
 });

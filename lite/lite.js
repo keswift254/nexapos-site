@@ -77,10 +77,10 @@
   }
 
   var Sale = window.NexaLiteSale;
-  var core = window.NexaLiteCore.create({ baseUrl: API, http: xhrHttp, storage: storage, bcrypt: bcryptLib, sale: Sale });
+  var core = window.NexaLiteCore.create({ baseUrl: API, http: xhrHttp, storage: storage, bcrypt: bcryptLib, sale: Sale, barcode: window.NexaLiteBarcode || null });
 
   // What the cashier is doing right now (kept in memory only).
-  var ui = { tab: 'sell', cart: [], saleType: 'retail', payment: 'cash', receiptId: null, lastSyncProblem: '', syncing: false, payingId: null, payTimer: null, starting: false };
+  var ui = { tab: 'home', home: null, homeAt: 0, homeLoading: false, hideFigures: false, lowOnly: false, reportMode: 'day', reportsReady: false, report: null, cart: [], saleType: 'retail', payment: 'cash', receiptId: null, lastSyncProblem: '', syncing: false, payingId: null, payTimer: null, starting: false };
   var PAY_POLL_MS = 3000;
   var BACKGROUND_PAY_CHECK_MS = 15 * 1000;
   // Paying on the iPad itself leaves this page for Paystack and comes back to it (a fresh page load, so the login is
@@ -152,6 +152,17 @@
     if (status.heldSales > 0 && containerId === 'login-sales') {
       box.appendChild(make('div', 'notice warn', status.heldSales + (status.heldSales === 1 ? ' sale is' : ' sales are') + ' on hold on this iPad. Log in to open ' + (status.heldSales === 1 ? 'it' : 'them') + '.'));
     }
+    if (status.rejectedExpenses > 0 && containerId !== 'login-sales') {
+      box.appendChild(make('div', 'notice bad', status.rejectedExpenses + (status.rejectedExpenses === 1 ? ' expense was' : ' expenses were') + ' NOT recorded by the shop. Open Expenses (on the Dashboard) to see why.'));
+    }
+    if (status.pendingExpenses > 0 && containerId !== 'login-sales') {
+      var expenseWarn = make('div', 'notice warn', status.pendingExpenses + (status.pendingExpenses === 1 ? ' expense is' : ' expenses are') + ' saved on this iPad and waiting to be sent to the shop. ');
+      var expenseSend = make('button', 'small secondary', 'Send now');
+      expenseSend.type = 'button';
+      expenseSend.onclick = function () { doSync(true); };
+      expenseWarn.appendChild(expenseSend);
+      box.appendChild(expenseWarn);
+    }
     if (status.pendingSales > 0) {
       var warn =make('div', 'notice warn', status.pendingSales + (status.pendingSales === 1 ? ' sale is' : ' sales are') + ' saved on this iPad and waiting to be sent to the shop. ' + (ui.lastSyncProblem ? ui.lastSyncProblem + ' ' : ''));
       var send = make('button', 'small secondary', 'Send now');
@@ -207,18 +218,23 @@
   }
 
   // ---- tabs --------------------------------------------------------------------------------------------------
+  var TAB_NAMES = ['home', 'sell', 'products', 'reports', 'sales'];
   function showTab(name) {
     ui.tab = name;
-    var names = ['sell', 'products', 'sales'];
-    for (var i = 0; i < names.length; i++) {
-      show('panel-' + names[i], names[i] === name);
-      el('tab-' + names[i]).className = 'tab' + (names[i] === name ? ' on' : '');
+    for (var i = 0; i < TAB_NAMES.length; i++) {
+      show('panel-' + TAB_NAMES[i], TAB_NAMES[i] === name);
+      el('tab-' + TAB_NAMES[i]).className = 'tab' + (TAB_NAMES[i] === name ? ' on' : '');
     }
+    show('panel-expenses', name === 'expenses');
+    if (name === 'home') { renderHome(); refreshHome(false); }
+    if (name === 'expenses') { openExpenses(); }
+    if (name === 'products') { renderProducts(); }
+    if (name === 'reports') { initReports(); }
     if (name === 'sales') { renderSales(); }
   }
-  el('tab-sell').onclick = function () { showTab('sell'); };
-  el('tab-products').onclick = function () { showTab('products'); };
-  el('tab-sales').onclick = function () { showTab('sales'); };
+  for (var tabIndex = 0; tabIndex < TAB_NAMES.length; tabIndex++) {
+    (function (name) { el('tab-' + name).onclick = function () { ui.lowOnly = false; showTab(name); }; }(TAB_NAMES[tabIndex]));
+  }
 
   // ---- selling: picking products -----------------------------------------------------------------------------
   function stockBadge(cell, p) {
@@ -659,8 +675,65 @@
     return { kind: 'warn', text: '' };
   }
 
-  // ---- printing a receipt (AirPrint from the browser's own print sheet) ----------------------------------------
-  /** Draws the receipt sheet (the till code decides what is on it) and opens the print sheet. */
+  // ---- the receipt, drawn like the apps' (monospace paper), on screen and on paper ---------------------------------
+  /** Draws a receipt sheet (what core.receiptSheet decided) into [box]. */
+  function drawSheet(box, sheet) {
+    box.innerHTML = '';
+    function line(className, text) { box.appendChild(make('div', className, text)); }
+    function rule(dashed) { box.appendChild(make('div', dashed ? 'pp-dash' : 'pp-solid')); }
+    function pair(className, left, right) {
+      var row = make('div', 'pp-row' + (className ? ' ' + className : ''));
+      row.appendChild(make('span', '', left));
+      row.appendChild(make('span', '', right));
+      box.appendChild(row);
+    }
+    var i;
+    if (sheet.reprint) { line('pp-reprint', 'REPRINT'); }
+    line('pp-center pp-shop', sheet.shopName);
+    line('pp-center', sheet.poweredBy);
+    if (sheet.address) { line('pp-center', sheet.address); }
+    if (sheet.phone) { line('pp-center', sheet.phone); }
+    rule(false);
+    for (i = 0; i < sheet.meta.length; i++) { line('', sheet.meta[i].label + ': ' + sheet.meta[i].value); }
+    rule(false);
+    for (i = 0; i < sheet.lines.length; i++) {
+      pair('', sheet.lines[i].name + '      ' + sheet.lines[i].quantity + ' x ' + sheet.lines[i].unit, sheet.lines[i].total);
+    }
+    rule(true);
+    for (i = 0; i < sheet.totals.length; i++) { pair(sheet.totals[i].grand ? 'pp-total' : '', sheet.totals[i].label, sheet.totals[i].value); }
+    rule(false);
+    for (i = 0; i < sheet.payment.length; i++) {
+      if (sheet.payment[i].text) { line('', sheet.payment[i].label + ': ' + sheet.payment[i].value); } else { pair('', sheet.payment[i].label, sheet.payment[i].value); }
+    }
+    rule(false);
+    line('pp-center', sheet.thanks);
+    line('pp-center', sheet.support);
+    if (sheet.footer) { line('pp-center pp-italic', sheet.footer); }
+    if (sheet.barcodeValue && window.NexaLiteBarcode) { box.appendChild(barcodeSvg(sheet.barcodeValue)); line('pp-center pp-digits', sheet.barcodeValue); }
+  }
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgNode(tag, attributes) {
+    var node = document.createElementNS(SVG_NS, tag);
+    for (var name in attributes) {
+      if (Object.prototype.hasOwnProperty.call(attributes, name)) { node.setAttribute(name, attributes[name]); }
+    }
+    return node;
+  }
+
+  /** The receipt's barcode, drawn from the bars NexaLiteBarcode worked out (the same bars the apps print). */
+  function barcodeSvg(digits) {
+    var made = window.NexaLiteBarcode.barcodeBars(digits);
+    var quiet = 10;
+    var root = svgNode('svg', { 'class': 'pp-barcode', viewBox: '0 0 ' + (made.modules + quiet * 2) + ' 60', width: String((made.modules + quiet * 2) * 2), height: '120', role: 'img', 'aria-label': 'Receipt barcode ' + digits });
+    for (var i = 0; i < made.bars.length; i++) {
+      root.appendChild(svgNode('rect', { x: String(made.bars[i].x + quiet), y: '0', width: String(made.bars[i].w), height: '60', fill: '#000' }));
+    }
+    return root;
+  }
+
+  // ---- printing (AirPrint from the browser's own print sheet) ----------------------------------------------------
+  /** Draws the receipt and opens the print sheet. */
   function printReceipt(receipt, reprint) {
     if (typeof window.print !== 'function') {
       window.alert('This browser cannot print.');
@@ -668,80 +741,34 @@
     }
     var sheet = core.receiptSheet(receipt, reprint);
     var box = el('print-receipt');
-    box.innerHTML = '';
+    box.className = 'paper';
     box.style.width = sheet.widthMm + 'mm';
-    function line(className, text) { box.appendChild(make('div', className, text)); }
-    function rule() { box.appendChild(make('div', 'pr-rule')); }
-    function pair(className, left, right) {
-      var row = make('div', 'pr-row' + (className ? ' ' + className : ''));
-      row.appendChild(make('span', '', left));
-      row.appendChild(make('span', '', right));
-      box.appendChild(row);
-    }
-    var i;
-    line('pr-center pr-shop', sheet.shopName);
-    if (sheet.address) { line('pr-center', sheet.address); }
-    if (sheet.phone) { line('pr-center', sheet.phone); }
-    line('pr-center pr-title', sheet.title);
-    rule();
-    for (i = 0; i < sheet.meta.length; i++) { pair('', sheet.meta[i].label, sheet.meta[i].value); }
-    rule();
-    for (i = 0; i < sheet.lines.length; i++) {
-      line('pr-item', sheet.lines[i].name);
-      pair('', sheet.lines[i].detail, sheet.lines[i].total);
-    }
-    rule();
-    for (i = 0; i < sheet.totals.length; i++) { pair(sheet.totals[i].grand ? 'pr-grand' : '', sheet.totals[i].label, sheet.totals[i].value); }
-    rule();
-    for (i = 0; i < sheet.payment.length; i++) { pair('', sheet.payment[i].label, sheet.payment[i].value); }
-    if (sheet.footer) {
-      rule();
-      line('pr-center', sheet.footer);
-    }
+    drawSheet(box, sheet);
     window.print();
   }
 
   function showReceipt(receipt) {
     var box = el('receipt-box');
     box.innerHTML = '';
-    var card = make('div', 'receipt');
-    card.appendChild(make('div', 'muted', 'Sale ' + receipt.saleNumber + ' · ' + timeText(receipt.createdAt)));
-    card.appendChild(make('div', 'big', 'Total ' + core.formatCents(receipt.totalCents)));
-    card.appendChild(make('div', '', (receipt.paymentMethod === 'cash' ? 'Paid in cash' : (receipt.paymentMethod === 'paystack' ? 'Paid online (Paystack)' : 'Paid by M-Pesa' + (receipt.referenceNote ? ' (' + receipt.referenceNote + ')' : ''))) + (receipt.customerName !== 'Walk-in customer' ? ' · ' + receipt.customerName : '')));
-    if (receipt.changeDueCents !== null && receipt.changeDueCents >= 0) {
-      card.appendChild(make('div', 'big', 'Change to give: ' + core.formatCents(receipt.changeDueCents)));
-    } else if (receipt.changeDueCents !== null) {
-      card.appendChild(make('div', 'notice warn', 'The customer still owes ' + core.formatCents(-receipt.changeDueCents) + '.'));
+    if (receipt.changeDueCents !== null && receipt.changeDueCents >= 0 && receipt.paymentMethod === 'cash') {
+      box.appendChild(make('div', 'notice ok', 'Change to give: ' + money(receipt.changeDueCents)));
+    } else if (receipt.changeDueCents !== null && receipt.paymentMethod === 'cash') {
+      box.appendChild(make('div', 'notice warn', 'The customer still owes ' + money(-receipt.changeDueCents) + '.'));
     }
-    var table = make('table');
-    table.style.marginTop = '10px';
-    var tbody = make('tbody');
-    for (var i = 0; i < receipt.lines.length; i++) {
-      var row = make('tr');
-      row.appendChild(make('td', '', receipt.lines[i].name + '  ×' + receipt.lines[i].quantity));
-      row.appendChild(make('td', 'num', core.formatCents(receipt.lines[i].lineTotalCents)));
-      tbody.appendChild(row);
-    }
-    if (receipt.discountCents > 0) {
-      var discountRow = make('tr');
-      discountRow.appendChild(make('td', '', 'Discount'));
-      discountRow.appendChild(make('td', 'num', '-' + core.formatCents(receipt.discountCents)));
-      tbody.appendChild(discountRow);
-    }
-    table.appendChild(tbody);
-    card.appendChild(table);
+    var paper = make('div', 'paper');
+    drawSheet(paper, core.receiptSheet(receipt, false));
+    box.appendChild(paper);
     var statusBox = make('div');
     statusBox.id = 'receipt-status';
-    card.appendChild(statusBox);
-    var printIt = make('button', 'secondary', 'Print receipt');
-    printIt.type = 'button';
-    printIt.onclick = function () { printReceipt(receipt, false); };
+    box.appendChild(statusBox);
     var next = make('button', 'big', 'New sale');
     next.type = 'button';
     next.onclick = function () { ui.receiptId = null; show('receipt-box', false); show('sell-form', true); };
-    card.appendChild(next);
-    card.appendChild(printIt);
-    box.appendChild(card);
+    var printIt = make('button', 'outlined wide', 'Print receipt');
+    printIt.type = 'button';
+    printIt.onclick = function () { printReceipt(receipt, false); };
+    box.appendChild(next);
+    box.appendChild(printIt);
     show('receipt-box', true);
     show('sell-form', false);
     updateReceiptStatus();
@@ -1222,6 +1249,19 @@
   function renderProducts() {
     var status = core.getStatus();
     var found = core.searchProducts(el('search').value, el('category').value || null, false);
+    if (ui.lowOnly) {
+      found = found.filter(function (p) { return p.stockQty <= p.reorderLevel; });
+    }
+    var note = el('product-note');
+    note.innerHTML = '';
+    if (ui.lowOnly) {
+      var filterNotice = make('div', 'notice ok', 'Showing only the products at or below their reorder level. ');
+      var showAll = make('button', 'small secondary', 'Show all');
+      showAll.type = 'button';
+      showAll.onclick = function () { ui.lowOnly = false; renderProducts(); };
+      filterNotice.appendChild(showAll);
+      note.appendChild(filterNotice);
+    }
     var body = el('product-rows');
     body.innerHTML = '';
     var shown = Math.min(found.length, MAX_ROWS);
@@ -1275,9 +1315,9 @@
       el('password').value = '';
       if (error) { say('login-message', 'bad', error.message); return; }
       el('username').value = '';
-      ui.tab = 'sell';
+      ui.tab = 'home';
       route();
-      showTab('sell');
+      showTab('home');
       armIdleTimer();
     });
   };
@@ -1297,6 +1337,7 @@
       if (core.currentUser()) {
         setText('till-updated', updatedText(core.getStatus()));
         renderAll();
+        if (ui.tab === 'expenses' && canUseExpenses()) { loadExpenseDay(ui.expDay); }
       } else {
         route();
       }
@@ -1310,6 +1351,17 @@
     if (core.currentUser() && ui.cart.length > 0) { core.holdSale('Unfinished sale', currentDraft()); }
     resetSale();
     el('print-receipt').innerHTML = '';
+    el('report-result').innerHTML = '';
+    ui.home = null;
+    ui.homeAt = 0;
+    ui.report = null;
+    ui.lowOnly = false;
+    ui.expList = null;
+    ui.expDay = null;
+    ui.expToken += 1;
+    el('exp-list').innerHTML = '';
+    el('exp-refused').innerHTML = '';
+    show('exp-form', false);
     core.logout();
     ui.receiptId = null;
     clearReturnToken();
@@ -1321,9 +1373,10 @@
   el('logout-button').onclick = leaveTill;
   el('forget-button').onclick = function () {
     var pending = core.getStatus().pendingSales + core.getStatus().rejectedSales;
+    var pendingExpenses = core.getStatus().pendingExpenses + core.getStatus().rejectedExpenses;
     var held = core.getStatus().heldSales;
-    var warning = pending > 0
-      ? 'This iPad still holds ' + pending + ' sale(s) that the shop has not recorded. Disconnecting will DELETE them. Are you sure?'
+    var warning = pending > 0 || pendingExpenses > 0
+      ? 'This iPad still holds ' + (pending > 0 ? pending + ' sale(s)' : '') + (pending > 0 && pendingExpenses > 0 ? ' and ' : '') + (pendingExpenses > 0 ? pendingExpenses + ' expense(s)' : '') + ' that the shop has not recorded. Disconnecting will DELETE them. Are you sure?'
       : (held > 0
         ? 'This iPad has ' + held + ' held sale(s). Disconnecting will throw them away. Are you sure?'
         : 'Disconnect this iPad from the shop? You will need a new invite code to connect again.');
@@ -1351,6 +1404,596 @@
   }, SYNC_EVERY_MS);
   window.addEventListener('online', function () { if (core.getStatus().joined) { doSync(false); checkWaitingPayments(); } }, false);
   window.setInterval(checkWaitingPayments, BACKGROUND_PAY_CHECK_MS);
+
+  // ---- money, dates and small helpers for the Dashboard and Reports -------------------------------------------------
+  var MONTHS3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  /** "KES 1,250.00" - amounts are written with the currency, as in the apps. */
+  function money(cents) { return core.shopInfo().currency + ' ' + core.formatCents(cents); }
+  function clockText(date) { return two(date.getHours()) + ':' + two(date.getMinutes()); }
+  function dayText(date) { return date.getFullYear() + '-' + two(date.getMonth() + 1) + '-' + two(date.getDate()); }
+  /** The server writes times with 6 decimals ("...:06.123456Z"); an old Safari only understands 3. */
+  function parseIso(text) {
+    var ms = Date.parse(String(text || '').replace(/(\.\d{3})\d+Z$/, '$1Z'));
+    return isNaN(ms) ? null : new Date(ms);
+  }
+  function parseDayText(text) {
+    var found = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text || ''));
+    return found ? new Date(Number(found[1]), Number(found[2]) - 1, Number(found[3])) : null;
+  }
+  function timeInReport(text, withDay) {
+    var date = parseIso(text);
+    if (!date) { return ''; }
+    return withDay ? date.getDate() + ' ' + MONTHS3[date.getMonth()] + ' ' + clockText(date) : clockText(date);
+  }
+  function reportMethodLabel(method) { return method === 'cash' ? 'Cash' : (method === 'mpesa_manual' ? 'M-Pesa (Manual)' : 'M-Pesa'); }
+  function capital(word) { return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''; }
+
+  // The "hide the figures" eye, remembered on this iPad.
+  var UI_KEY = 'nexapos-lite-ui';
+  try {
+    var savedPrefs = storage ? storage.getItem(UI_KEY) : null;
+    ui.hideFigures = !!(savedPrefs && JSON.parse(savedPrefs).hideFigures);
+  } catch (e) {
+    ui.hideFigures = false;
+  }
+  function savePrefs() {
+    try { if (storage) { storage.setItem(UI_KEY, JSON.stringify({ hideFigures: ui.hideFigures })); } } catch (e) { /* not remembered */ }
+  }
+
+  // ---- the Dashboard: the apps' home screen, for the whole shop ---------------------------------------------------------
+  var EYE_SHOWN = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>';
+  var EYE_HIDDEN = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>';
+  var EYE_IDS = ['eye-sales', 'eye-profit', 'eye-stock'];
+
+  function updateEyes() {
+    for (var i = 0; i < EYE_IDS.length; i++) {
+      el(EYE_IDS[i]).innerHTML = ui.hideFigures ? EYE_HIDDEN : EYE_SHOWN;
+    }
+  }
+  function toggleFigures() {
+    ui.hideFigures = !ui.hideFigures;
+    savePrefs();
+    renderHome();
+  }
+  for (var eyeIndex = 0; eyeIndex < EYE_IDS.length; eyeIndex++) { el(EYE_IDS[eyeIndex]).onclick = toggleFigures; }
+
+  /** The apps' badge: how today compares with yesterday. */
+  function drawChange(boxId, change) {
+    var box = el(boxId);
+    box.innerHTML = '';
+    if (!change || ui.hideFigures) { return; }
+    var arrow = change.direction === 'up' ? '▲ ' : (change.direction === 'down' ? '▼ ' : '– ');
+    box.appendChild(make('span', 'pct ' + change.direction, arrow + Math.abs(change.percent) + '%'));
+  }
+
+  /** "Last 7 Days": Sales, Expenses and Net Profit as three lines, one point per day. */
+  function drawTrend(days) {
+    var box = el('trend-chart');
+    box.innerHTML = '';
+    if (!days || days.length < 2) {
+      box.appendChild(make('p', 'muted', 'Loading...'));
+      return;
+    }
+    var W = 600;
+    var H = 230;
+    var left = 28;
+    var right = 28;
+    var top = 14;
+    var bottom = 40;
+    var series = [['salesTotalCents', '#515B92'], ['expensesTotalCents', '#F44336'], ['netProfitCents', '#4CAF50']];
+    var low = 0;
+    var high = 0;
+    var i;
+    var s;
+    for (i = 0; i < days.length; i++) {
+      for (s = 0; s < series.length; s++) {
+        low = Math.min(low, days[i][series[s][0]]);
+        high = Math.max(high, days[i][series[s][0]]);
+      }
+    }
+    var empty = high === 0 && low === 0;
+    if (high === low) { high = low + 1; }
+    function xAt(index) { return left + (W - left - right) * index / (days.length - 1); }
+    function yAt(value) { return top + (H - top - bottom) * (high - value) / (high - low); }
+    var root = svgNode('svg', { 'class': 'chart', viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Sales, expenses and net profit for the last 7 days' });
+    for (i = 0; i <= 4; i++) {
+      var gy = top + (H - top - bottom) * i / 4;
+      root.appendChild(svgNode('line', { x1: String(left), x2: String(W - right), y1: String(gy), y2: String(gy), stroke: '#E4E1E9', 'stroke-width': '1' }));
+    }
+    if (low < 0) {
+      root.appendChild(svgNode('line', { x1: String(left), x2: String(W - right), y1: String(yAt(0)), y2: String(yAt(0)), stroke: '#C7C5D0', 'stroke-width': '1.5' }));
+    }
+    for (s = 0; s < series.length; s++) {
+      var points = [];
+      for (i = 0; i < days.length; i++) { points.push(xAt(i).toFixed(1) + ',' + yAt(days[i][series[s][0]]).toFixed(1)); }
+      root.appendChild(svgNode('polyline', { points: points.join(' '), fill: 'none', stroke: series[s][1], 'stroke-width': '4', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+      for (i = 0; i < days.length; i++) {
+        root.appendChild(svgNode('circle', { cx: xAt(i).toFixed(1), cy: yAt(days[i][series[s][0]]).toFixed(1), r: '5', fill: series[s][1] }));
+      }
+    }
+    for (i = 0; i < days.length; i++) {
+      var date = parseDayText(days[i].date);
+      var label = svgNode('text', { x: xAt(i).toFixed(1), y: String(H - 10), 'text-anchor': 'middle', 'font-size': '22', fill: '#46464F' });
+      label.appendChild(document.createTextNode(i === days.length - 1 ? 'Today' : (date ? WEEKDAYS[date.getDay()] : '')));
+      root.appendChild(label);
+    }
+    box.appendChild(root);
+    if (empty) { box.appendChild(make('p', 'muted', 'No sales or expenses in the last 7 days.')); }
+  }
+
+  function renderHome() {
+    updateEyes();
+    show('home-expenses', canUseExpenses());
+    var d = ui.home;
+    var stock = core.stockFigures();
+    function shown(text) { return ui.hideFigures ? '******' : text; }
+    setText('stat-sales', d ? shown(money(d.today.salesTotalCents)) : '–');
+    setText('stat-sales-sub', d ? (d.today.transactionCount === 1 ? '1 transaction' : d.today.transactionCount + ' transactions') : '');
+    drawChange('stat-sales-pct', d ? d.salesChange : null);
+    setText('stat-profit', d ? shown(money(d.today.netProfitCents)) : '–');
+    setText('stat-profit-sub', d ? 'Gross ' + shown(money(d.today.grossProfitCents)) : '');
+    drawChange('stat-profit-pct', d ? d.netProfitChange : null);
+    setText('stat-low', String(stock.lowStockCount));
+    setText('stat-low-sub', stock.lowStockCount === 1 ? 'product at/below reorder level' : 'products at/below reorder level');
+    setText('stat-stock', shown(money(stock.stockValueCents)));
+    drawTrend(d ? d.last7 : null);
+    setText('home-updated', ui.homeAt ? 'Shop figures updated ' + clockText(new Date(ui.homeAt)) + '. They include sales from every device.' : '');
+  }
+
+  function showHomeMessage(kind, text, withSend) {
+    var box = el('home-message');
+    box.innerHTML = '';
+    if (!text) { return; }
+    var notice = make('div', 'notice ' + kind, text + ' ');
+    if (withSend) {
+      var send = make('button', 'small secondary', 'Send now');
+      send.type = 'button';
+      send.onclick = function () { doSync(true); };
+      notice.appendChild(send);
+    }
+    box.appendChild(notice);
+  }
+
+  function refreshHome(manual) {
+    if (!core.currentUser() || ui.homeLoading) { return; }
+    if (!manual && ui.homeAt && new Date().getTime() - ui.homeAt < 30000) { return; }
+    ui.homeLoading = true;
+    if (manual) { setBusy('home-refresh', true, 'Refreshing...'); }
+    core.loadDashboard(function (error, data) {
+      ui.homeLoading = false;
+      setBusy('home-refresh', false, 'Refresh');
+      if (!core.currentUser()) { return; }
+      if (error) {
+        showHomeMessage(error.code === 'offline' ? 'warn' : 'bad', error.message + (ui.home ? ' The figures shown are from ' + clockText(new Date(ui.homeAt)) + '.' : ''), false);
+        renderHome();
+        return;
+      }
+      ui.home = data;
+      ui.homeAt = new Date().getTime();
+      showHomeMessage('warn', data.waitingHere > 0
+        ? data.waitingHere + (data.waitingHere === 1 ? ' sale on this iPad has' : ' sales on this iPad have') + ' not reached the shop yet, so ' + (data.waitingHere === 1 ? 'it is' : 'they are') + ' not in these figures.'
+        : '', data.waitingHere > 0);
+      renderHome();
+    });
+  }
+  el('home-refresh').onclick = function () { refreshHome(true); };
+  el('home-newsale').onclick = function () { ui.lowOnly = false; showTab('sell'); showView('pick'); };
+  el('home-inventory').onclick = function () { ui.lowOnly = false; showTab('products'); };
+  el('home-reports').onclick = function () { showTab('reports'); };
+  el('home-expenses').onclick = function () { showTab('expenses'); };
+  el('stat-low-card').onclick = function () { ui.lowOnly = true; showTab('products'); };
+  window.setInterval(function () {
+    if (core.currentUser() && ui.tab === 'home' && !document.hidden) { refreshHome(false); }
+  }, 60000);
+
+  // ---- Reports: the apps' Reports screen, for the whole shop ------------------------------------------------------------
+  var REPORT_MODES = ['day', 'month', 'expenses', 'range'];
+
+  function setReportMode(mode) {
+    ui.reportMode = mode;
+    for (var i = 0; i < REPORT_MODES.length; i++) { el('rm-' + REPORT_MODES[i]).className = REPORT_MODES[i] === mode ? 'on' : ''; }
+    show('rf-date', mode === 'day' || mode === 'expenses');
+    show('rf-month', mode === 'month');
+    show('rf-range', mode === 'range');
+    say('report-message', '', '');
+  }
+  for (var modeIndex = 0; modeIndex < REPORT_MODES.length; modeIndex++) {
+    (function (mode) { el('rm-' + mode).onclick = function () { setReportMode(mode); }; }(REPORT_MODES[modeIndex]));
+  }
+
+  function initReports() {
+    if (ui.reportsReady) { return; }
+    ui.reportsReady = true;
+    var now = new Date();
+    var monthSelect = el('report-month');
+    monthSelect.innerHTML = '';
+    for (var m = 0; m < 12; m++) {
+      var option = make('option', '', MONTHS_FULL[m]);
+      option.value = String(m + 1);
+      monthSelect.appendChild(option);
+    }
+    monthSelect.value = String(now.getMonth() + 1);
+    var yearSelect = el('report-year');
+    yearSelect.innerHTML = '';
+    for (var y = now.getFullYear() + 1; y >= 2020; y--) {
+      var yearOption = make('option', '', String(y));
+      yearOption.value = String(y);
+      yearSelect.appendChild(yearOption);
+    }
+    yearSelect.value = String(now.getFullYear());
+    el('report-date').value = dayText(now);
+    el('report-since').value = dayText(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
+    el('report-until').value = dayText(now);
+    setReportMode('day');
+  }
+
+  function readReportInput(mode) {
+    if (mode === 'month') { return { year: el('report-year').value, month: el('report-month').value }; }
+    if (mode === 'range') { return { since: el('report-since').value, until: el('report-until').value }; }
+    return { date: el('report-date').value };
+  }
+
+  function metricTile(label, value) {
+    var cell = make('div', 'metric');
+    var card = make('div', 'card');
+    card.appendChild(make('div', 'l', label));
+    card.appendChild(make('div', 'v', value));
+    cell.appendChild(card);
+    return cell;
+  }
+
+  function reportCard(title, emptyText, rows) {
+    var card = make('div', 'card');
+    card.appendChild(make('h2', '', title));
+    if (rows.length === 0) { card.appendChild(make('p', 'muted', emptyText)); }
+    for (var i = 0; i < rows.length; i++) { card.appendChild(rows[i]); }
+    return card;
+  }
+
+  function reportRow(title, sub, amount) {
+    var row = make('div', 'rowline');
+    var left = make('div', 'a');
+    left.appendChild(make('div', '', title));
+    if (sub) { left.appendChild(make('div', 'sku', sub)); }
+    row.appendChild(left);
+    row.appendChild(make('div', 'r', amount));
+    return row;
+  }
+
+  function renderReport(report) {
+    var box = el('report-result');
+    box.innerHTML = '';
+    var range = report.range;
+    var monthly = range.mode === 'month';
+    var multiDay = monthly || range.mode === 'range';
+    var head = make('div', 'reporthead');
+    head.appendChild(make('h2', '', range.title));
+    head.appendChild(make('div', 'period', range.period));
+    box.appendChild(head);
+    if (report.waitingHere > 0) {
+      var waiting = make('div', 'notice warn', report.waitingHere + (report.waitingHere === 1 ? ' sale on this iPad has' : ' sales on this iPad have') + ' not reached the shop yet, so ' + (report.waitingHere === 1 ? 'it is' : 'they are') + ' not in this report. ');
+      var send = make('button', 'small secondary', 'Send now');
+      send.type = 'button';
+      send.onclick = function () { doSync(true); };
+      waiting.appendChild(send);
+      box.appendChild(waiting);
+    }
+    var metrics = make('div', 'metrics');
+    metrics.appendChild(metricTile('Paid Sales', money(report.salesTotalCents)));
+    metrics.appendChild(metricTile('Total Cash Received', money(report.cashReceivedCents)));
+    metrics.appendChild(metricTile('Total Paid by M-Pesa', money(report.mpesaCents)));
+    metrics.appendChild(metricTile('Total Expenses', money(report.expensesTotalCents)));
+    if (monthly) { metrics.appendChild(metricTile('Gross Profit', money(report.grossProfitCents))); }
+    metrics.appendChild(metricTile(monthly ? 'Net Profit' : 'Grand Total', money(monthly ? report.netProfitCents : report.grandTotalCents)));
+    metrics.appendChild(metricTile('Transactions', String(report.transactionCount)));
+    box.appendChild(metrics);
+    var printIt = make('button', 'outlined small', 'Print');
+    printIt.type = 'button';
+    printIt.style.marginTop = '12px';
+    printIt.onclick = printReport;
+    box.appendChild(printIt);
+
+    var saleRows = [];
+    for (var i = 0; i < report.sales.length; i++) {
+      var sale = report.sales[i];
+      saleRows.push(reportRow(sale.itemNames || sale.saleNumber,
+        [sale.cashierName, capital(sale.saleType), reportMethodLabel(sale.paymentMethod), timeInReport(sale.createdAt, multiDay)].join(' · '),
+        money(sale.totalCents)));
+    }
+    var salesCard = reportCard('Sales', 'No paid sales for this period.', saleRows);
+    if (report.salesTruncated) { salesCard.appendChild(make('p', 'muted', 'Only the latest ' + report.sales.length + ' of ' + report.transactionCount + ' sales are listed. The totals include all of them.')); }
+    box.appendChild(salesCard);
+
+    var expenseRows = [];
+    for (var e = 0; e < report.expenses.length; e++) {
+      var expense = report.expenses[e];
+      expenseRows.push(reportRow(expense.title + (expense.note ? ' (' + expense.note + ')' : ''),
+        expense.enteredByName + ' · ' + timeInReport(expense.createdAt, multiDay), money(expense.amountCents)));
+    }
+    var expensesCard = reportCard('Expenses', 'No expenses for this period.', expenseRows);
+    if (report.expensesTruncated) { expensesCard.appendChild(make('p', 'muted', 'Only the first ' + report.expenses.length + ' expenses are listed. The total includes all of them.')); }
+    var totalLine = make('div', 'grandrow');
+    totalLine.appendChild(make('span', '', 'Total Expenses'));
+    totalLine.appendChild(make('span', '', money(report.expensesTotalCents)));
+    expensesCard.appendChild(totalLine);
+    box.appendChild(expensesCard);
+
+    var finish = make('div', 'card');
+    if (monthly) {
+      var gross = make('div', 'grandrow');
+      gross.appendChild(make('span', '', 'Gross Profit'));
+      gross.appendChild(make('span', '', money(report.grossProfitCents)));
+      finish.appendChild(gross);
+    }
+    var last = make('div', 'grandrow bold');
+    last.appendChild(make('span', '', monthly ? 'Net Profit' : 'Grand Total'));
+    last.appendChild(make('span', '', money(monthly ? report.netProfitCents : report.grandTotalCents)));
+    finish.appendChild(last);
+    box.appendChild(finish);
+  }
+
+  el('report-view').onclick = function () {
+    var range = window.NexaLiteCore.reportRange(ui.reportMode, readReportInput(ui.reportMode));
+    if (!range.ok) { say('report-message', 'warn', range.message); return; }
+    say('report-message', '', '');
+    setBusy('report-view', true, 'Loading...');
+    core.loadReport(range, function (error, report) {
+      setBusy('report-view', false, 'View Report');
+      if (!core.currentUser()) { return; }
+      if (error) { say('report-message', error.code === 'offline' ? 'warn' : 'bad', error.message); return; }
+      ui.report = report;
+      renderReport(report);
+    });
+  };
+
+  /** Prints the report on the iPad's printer (AirPrint), as a plain page. */
+  function printReport() {
+    var report = ui.report;
+    if (!report) { return; }
+    if (typeof window.print !== 'function') { window.alert('This browser cannot print.'); return; }
+    var info = core.shopInfo();
+    var monthly = report.range.mode === 'month';
+    var multiDay = monthly || report.range.mode === 'range';
+    var box = el('print-receipt');
+    box.className = 'paper';
+    box.style.width = '';
+    box.innerHTML = '';
+    function line(className, text) { box.appendChild(make('div', className, text)); }
+    function rule(dashed) { box.appendChild(make('div', dashed ? 'pp-dash' : 'pp-solid')); }
+    function pair(className, left, right) {
+      var row = make('div', 'pp-row' + (className ? ' ' + className : ''));
+      row.appendChild(make('span', '', left));
+      row.appendChild(make('span', '', right));
+      box.appendChild(row);
+    }
+    var i;
+    line('pp-center pp-shop', info.name);
+    line('pp-center pp-bold', report.range.title);
+    line('pp-center', report.range.period);
+    rule(false);
+    pair('', 'Paid Sales', money(report.salesTotalCents));
+    pair('', 'Total Cash Received', money(report.cashReceivedCents));
+    pair('', 'Total Paid by M-Pesa', money(report.mpesaCents));
+    pair('', 'Total Expenses', money(report.expensesTotalCents));
+    if (monthly) { pair('', 'Gross Profit', money(report.grossProfitCents)); }
+    pair('pp-bold', monthly ? 'Net Profit' : 'Grand Total', money(monthly ? report.netProfitCents : report.grandTotalCents));
+    pair('', 'Transactions', String(report.transactionCount));
+    rule(false);
+    line('pp-bold', 'Sales');
+    if (report.sales.length === 0) { line('', 'No paid sales for this period.'); }
+    for (i = 0; i < report.sales.length; i++) {
+      var sale = report.sales[i];
+      pair('', sale.itemNames || sale.saleNumber, money(sale.totalCents));
+      line('', '   ' + [sale.cashierName, reportMethodLabel(sale.paymentMethod), timeInReport(sale.createdAt, multiDay)].join(' / '));
+    }
+    rule(true);
+    line('pp-bold', 'Expenses');
+    if (report.expenses.length === 0) { line('', 'No expenses for this period.'); }
+    for (i = 0; i < report.expenses.length; i++) {
+      var expense = report.expenses[i];
+      pair('', expense.title + (expense.note ? ' (' + expense.note + ')' : ''), money(expense.amountCents));
+      line('', '   ' + expense.enteredByName + ' / ' + timeInReport(expense.createdAt, multiDay));
+    }
+    rule(false);
+    line('pp-center', 'Powered by NEXAPOS');
+    window.print();
+  }
+
+  // ---- Expenses: the apps' Expenses screen (an owner or a manager), for the whole shop ------------------------------------
+  // One day at a time, with a total, Add and Delete - like the app. The list is the shop's (every device's expenses). An
+  // expense is saved on this iPad first and sent with the sales; only the ones entered on this iPad carry a Delete, because
+  // the shop's sync accepts a deletion only from the device that entered the expense.
+  var WEEKDAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  ui.expDay = null;
+  ui.expList = null;
+  ui.expToken = 0;
+
+  function canUseExpenses() {
+    var user = core.currentUser();
+    return !!user && (user.roleName === 'Admin' || user.roleName === 'Manager');
+  }
+
+  function expenseDayTitle(day) {
+    var date = parseDayText(day);
+    if (!date) { return ''; }
+    var written = date.getDate() + ' ' + MONTHS3[date.getMonth()] + ' ' + date.getFullYear();
+    return day === dayText(new Date()) ? 'Today, ' + written : WEEKDAYS_FULL[date.getDay()] + ', ' + written;
+  }
+
+  function expenseRow(r) {
+    var row = make('div', 'rowline' + (r.deleting ? ' going' : ''));
+    var left = make('div', 'a');
+    left.appendChild(make('div', '', r.title));
+    var sub = [timeInReport(r.createdAt, false), r.enteredByName];
+    if (r.note) { sub.push(r.note); }
+    var subLine = make('div', 'sku', sub.join(' \u00b7 '));
+    if (r.pending) { subLine.appendChild(make('span', 'badge waiting', 'Waiting to send')); }
+    if (r.deleting) { subLine.appendChild(make('span', 'badge waiting', 'Being deleted')); }
+    left.appendChild(subLine);
+    row.appendChild(left);
+    var right = make('div', 'r');
+    right.appendChild(make('div', '', money(r.amountCents)));
+    if (r.mine && !r.deleting) {
+      var remove = make('button', 'outlined small', 'Delete');
+      remove.type = 'button';
+      remove.onclick = function () { confirmDeleteExpense(r); };
+      right.appendChild(remove);
+    }
+    row.appendChild(right);
+    return row;
+  }
+
+  /** What the shop could not take (kept on the iPad, never silently dropped). */
+  function renderRefusedExpenses() {
+    var box = el('exp-refused');
+    box.innerHTML = '';
+    var refused = core.outbox().rejectedExpenses;
+    for (var i = 0; i < refused.length; i++) {
+      (function (item) {
+        var card = make('div', 'notice bad', (item.deleting ? 'The shop did not delete "' : 'The shop did not record "') + item.title + '" (' + money(item.amountCents) + '): ' + item.message + ' ');
+        var drop = make('button', 'small secondary', 'Remove this');
+        drop.type = 'button';
+        drop.onclick = function () {
+          var gone = core.discardExpense(item.id);
+          if (!gone.ok) { say('exp-message', 'bad', gone.message); return; }
+          renderBanner('till-sales');
+          renderRefusedExpenses();
+        };
+        card.appendChild(drop);
+        box.appendChild(card);
+      }(refused[i]));
+    }
+  }
+
+  function renderExpenses(list, loading) {
+    var box = el('exp-list');
+    box.innerHTML = '';
+    renderRefusedExpenses();
+    if (!list) {
+      setText('exp-total', '-');
+      box.appendChild(make('p', 'muted', loading ? 'Loading...' : 'The list could not be loaded.'));
+      setText('exp-note', '');
+      return;
+    }
+    setText('exp-total', money(list.totalCents));
+    if (list.rows.length === 0) { box.appendChild(make('p', 'muted', 'No expenses recorded for this day.')); }
+    var foreign = false;
+    for (var i = 0; i < list.rows.length; i++) {
+      box.appendChild(expenseRow(list.rows[i]));
+      if (!list.rows[i].mine && !list.rows[i].pending) { foreign = true; }
+    }
+    var notes = [];
+    if (list.offline) { notes.push('No connection: only what is waiting on this iPad is shown.'); }
+    if (list.truncated) { notes.push('Only the first ' + (list.rows.length - list.waiting) + ' expenses are listed. The total includes all of them.'); }
+    if (foreign) { notes.push('An expense can only be deleted on the device where it was entered.'); }
+    setText('exp-note', notes.join(' '));
+  }
+
+  function loadExpenseDay(day) {
+    if (!canUseExpenses()) { return; }
+    var today = dayText(new Date());
+    if (!parseDayText(day)) { day = today; }
+    if (day > today) { day = today; }
+    ui.expDay = day;
+    el('exp-date').value = day;
+    setText('exp-title', expenseDayTitle(day));
+    el('exp-next').disabled = day >= today;
+    var token = ++ui.expToken;
+    if (!ui.expList || ui.expList.day !== day) { ui.expList = null; renderExpenses(null, true); }
+    core.loadExpenses(day, function (error, list) {
+      if (token !== ui.expToken || !core.currentUser()) { return; }
+      if (error) {
+        say('exp-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
+        if (error.code === 'offline') {
+          var rows = core.waitingExpenses(day);
+          var sum = 0;
+          for (var r = 0; r < rows.length; r++) { sum += rows[r].amountCents; }
+          ui.expList = { day: day, rows: rows, totalCents: sum, truncated: false, waiting: rows.length, offline: true };
+          renderExpenses(ui.expList, false);
+        } else {
+          ui.expList = null;
+          renderExpenses(null, false);
+        }
+        return;
+      }
+      say('exp-message', '', '');
+      ui.expList = list;
+      renderExpenses(list, false);
+    });
+  }
+
+  function openExpenses() {
+    if (!canUseExpenses()) { showTab('home'); return; }
+    show('exp-form', false);
+    show('exp-add', true);
+    say('exp-message', '', '');
+    loadExpenseDay(ui.expDay || dayText(new Date()));
+  }
+
+  function shiftExpenseDay(delta) {
+    var date = parseDayText(ui.expDay || dayText(new Date()));
+    if (!date) { return; }
+    loadExpenseDay(dayText(new Date(date.getFullYear(), date.getMonth(), date.getDate() + delta)));
+  }
+  el('exp-prev').onclick = function () { shiftExpenseDay(-1); };
+  el('exp-next').onclick = function () { shiftExpenseDay(1); };
+  el('exp-date').onchange = function () { if (el('exp-date').value) { loadExpenseDay(el('exp-date').value); } };
+  el('exp-back').onclick = function () { showTab('home'); };
+
+  /** Sends what is waiting (the new expense and anything older), then shows the day again. */
+  function sendExpensesThenShow() {
+    core.flush(function (error) {
+      ui.lastSyncProblem = error ? error.message : '';
+      renderBanner('till-sales');
+      if (!core.currentUser()) { route(); return; }
+      if (error && (error.code === 'unauthorized' || error.code === 'forbidden')) { route(); return; }
+      if (ui.tab === 'expenses') { loadExpenseDay(ui.expDay); }
+    });
+  }
+
+  function confirmDeleteExpense(r) {
+    if (!window.confirm('Delete expense?\n"' + r.title + '" (' + money(r.amountCents) + ') will be removed.')) { return; }
+    var gone = core.deleteExpense(r.id);
+    if (!gone.ok) { say('exp-message', 'bad', gone.message); return; }
+    say('exp-message', '', '');
+    if (gone.taken) {
+      renderBanner('till-sales');
+      loadExpenseDay(ui.expDay);
+    } else {
+      sendExpensesThenShow();
+    }
+  }
+
+  function openExpenseForm(open) {
+    show('exp-form', open);
+    show('exp-add', !open);
+    say('exp-form-message', '', '');
+    if (open) {
+      el('exp-name').value = '';
+      el('exp-amount').value = '';
+      el('exp-notetext').value = '';
+      el('exp-name').focus();
+    }
+  }
+  el('exp-add').onclick = function () { openExpenseForm(true); };
+  el('exp-cancel').onclick = function () { openExpenseForm(false); };
+  el('exp-save').onclick = function () {
+    var typed = el('exp-amount').value;
+    var cents = core.parseCents(typed);
+    if (cents === null) {
+      say('exp-form-message', 'warn', /\S/.test(typed) ? 'Type the amount as a number, for example 1250 or 1250.50.' : 'Enter an expense amount greater than zero.');
+      return;
+    }
+    var added = core.addExpense({ title: el('exp-name').value, amountCents: cents, expenseDate: ui.expDay, note: el('exp-notetext').value });
+    if (!added.ok) { say('exp-form-message', 'bad', added.message); return; }
+    openExpenseForm(false);
+    renderBanner('till-sales');
+    loadExpenseDay(ui.expDay);
+    sendExpensesThenShow();
+  };
 
   // ---- a newer version of the till ---------------------------------------------------------------------------
   // An iPad can keep this page open for days. Every few minutes, and whenever the page comes back to the front or the

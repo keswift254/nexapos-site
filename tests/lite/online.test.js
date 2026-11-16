@@ -887,7 +887,7 @@ test('the receipt of an online sale keeps the cashier who rang it up, even if th
       assert.strictEqual(t.core.history()[0].receipt.cashierName, 'Cashier');
       assert.strictEqual(t.core.online()[0].saleId, t.core.history()[0].receipt.saleId);
       var sheet = t.core.receiptSheet(t.core.history()[0].receipt, false);
-      assert.deepStrictEqual(sheet.payment, [{ label: 'Paid by', value: 'Online (Paystack)' }], 'the sale number is not repeated as a reference');
+      assert.deepStrictEqual(sheet.payment.map(function (r) { return r.label + '=' + r.value; }), ['Payment=M-Pesa', 'Sale type=Retail', 'Status=PAID'], 'an online sale reads M-Pesa, and the sale number is not repeated as a reference');
       assert.ok(sheet.meta.some(function (r) { return r.label === 'Cashier' && r.value === 'Cashier'; }));
       done();
     });
