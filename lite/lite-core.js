@@ -444,6 +444,21 @@
       return { state: 'ok', ok: true, daysLeft: days, message: days === null ? 'Licence active.' : 'Licence active, ' + days + ' day' + (days === 1 ? '' : 's') + ' left.' };
     }
 
+    /** The shop's licence in full (Settings > My License): status words, whether it ends, when, and how many days are left. */
+    function licenseDetails() {
+      var summary = licenseStatus();
+      var license = state.catalog ? state.catalog.license : null;
+      var until = license && license.valid_until ? parseServerTime(license.valid_until) : null;
+      return {
+        state: summary.state,
+        ok: summary.ok,
+        message: summary.message,
+        neverExpires: !!(license && license.never_expires === true),
+        validUntil: until,
+        daysLeft: summary.daysLeft === undefined ? null : summary.daysLeft
+      };
+    }
+
     // ---- selling -----------------------------------------------------------------------------------------
     function productMap() {
       var map = {};
@@ -555,6 +570,248 @@
           map[changes[i].payload.productId].stockQty += changes[i].payload.quantity;
         }
       }
+    }
+
+    // ---- support: the apps' Support conversations ------------------------------------------------------------------------------
+    // The shop's own support endpoints (the same ones the apps use): every call is signed with this device's key and only ever
+    // sees THIS shop's tickets. Photos travel as base64 (the page shrinks them first). Nothing here is kept on the iPad but the
+    // count of replies waiting, which the Support button shows.
+    var supportWaiting = 0;
+    var MAX_SUPPORT_TEXT = 8000;
+    var MAX_SUPPORT_PHOTOS = 4;
+
+    function supportTicket(raw) {
+      return {
+        id: whole(raw.id) ? raw.id : 0,
+        subject: typeof raw.subject === 'string' ? raw.subject : '',
+        status: raw.status === 'pending' || raw.status === 'closed' ? raw.status : 'open',
+        email: typeof raw.customer_email === 'string' ? raw.customer_email : '',
+        createdAt: typeof raw.created_at === 'string' ? raw.created_at : '',
+        updatedAt: typeof raw.updated_at === 'string' ? raw.updated_at : '',
+        lastMessageId: whole(Number(raw.last_support_message_id)) && Number(raw.last_support_message_id) > 0 ? Number(raw.last_support_message_id) : 0
+      };
+    }
+
+    function supportMessage(raw) {
+      var reactions = [];
+      var attachments = [];
+      var i;
+      if (isList(raw.reactions)) {
+        for (i = 0; i < raw.reactions.length; i++) {
+          if (raw.reactions[i] && typeof raw.reactions[i].emoji === 'string') {
+            reactions.push({ sender: raw.reactions[i].sender === 'support' ? 'support' : 'customer', emoji: raw.reactions[i].emoji });
+          }
+        }
+      }
+      if (isList(raw.attachments)) {
+        for (i = 0; i < raw.attachments.length; i++) {
+          if (raw.attachments[i] && whole(raw.attachments[i].id)) {
+            attachments.push({ id: raw.attachments[i].id, mime: String(raw.attachments[i].mime_type || '') });
+          }
+        }
+      }
+      var quote = raw.reply_to && typeof raw.reply_to === 'object' && whole(raw.reply_to.id)
+        ? { id: raw.reply_to.id, sender: raw.reply_to.sender === 'support' ? 'support' : 'customer', snippet: String(raw.reply_to.snippet || '') }
+        : null;
+      return {
+        id: whole(raw.id) ? raw.id : 0,
+        sender: raw.sender === 'support' ? 'support' : 'customer',
+        body: typeof raw.body === 'string' ? raw.body : '',
+        createdAt: typeof raw.created_at === 'string' ? raw.created_at : '',
+        replyTo: quote,
+        reactions: reactions,
+        attachments: attachments
+      };
+    }
+
+    function supportFailure(error, status, cb, what) {
+      if (error.code === 'unauthorized' || error.code === 'forbidden') {
+        cb(problem(error.code, 'This iPad is not allowed to use support. Ask the owner to check Connected devices.'));
+      } else if (status === 404 && what === 'list') {
+        cb(problem('unavailable', 'The shop server cannot do support chat yet. Ask the owner to update it.'));
+      } else {
+        cb(error);
+      }
+    }
+
+    function supportSignedIn() {
+      return !!(state.device && state.device.apiKey && state.joined);
+    }
+
+    /** The shop's tickets, newest activity first: cb(error) or cb(null, [{id, subject, status, email, createdAt, updatedAt}]). */
+    function supportList(cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      call('GET', 'support_list', null, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'list');
+          return;
+        }
+        if (!body || !isList(body.tickets)) {
+          cb(problem('server', 'The shop server sent a support list this till cannot read. Try again later.'));
+          return;
+        }
+        var tickets = [];
+        var waiting = 0;
+        for (var i = 0; i < body.tickets.length; i++) {
+          var ticket = supportTicket(body.tickets[i] || {});
+          if (ticket.id > 0) {
+            tickets.push(ticket);
+            if (ticket.status === 'pending') {
+              waiting += 1;
+            }
+          }
+        }
+        supportWaiting = waiting;
+        cb(null, tickets);
+      });
+    }
+
+    /** One conversation, oldest message first: cb(error) or cb(null, {ticket, messages}). */
+    function supportThread(ticketId, cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      call('GET', 'support_thread&ticket_id=' + encodeURIComponent(ticketId), null, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'thread');
+          return;
+        }
+        if (!body || !body.ticket || !isList(body.messages)) {
+          cb(problem('server', 'The shop server sent a conversation this till cannot read. Try again later.'));
+          return;
+        }
+        var messages = [];
+        for (var i = 0; i < body.messages.length; i++) {
+          var message = supportMessage(body.messages[i] || {});
+          if (message.id > 0) {
+            messages.push(message);
+          }
+        }
+        cb(null, { ticket: supportTicket(body.ticket), messages: messages });
+      });
+    }
+
+    function photoList(photos) {
+      var out = [];
+      for (var i = 0; i < photos.length; i++) {
+        out.push({ data: photos[i] });
+      }
+      return out;
+    }
+
+    function supportEmailOk(text) {
+      return text.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+    }
+
+    /**
+     * Opens a ticket. request: {subject, message, email, photos: [base64 text, ...]} -> cb(error) or cb(null, ticketId).
+     * The same checks and words as the server's (and the apps').
+     */
+    function supportOpen(request, cb) {
+      var subject = String(request.subject || '').replace(/^\s+|\s+$/g, '');
+      var message = String(request.message || '').replace(/^\s+|\s+$/g, '');
+      var email = String(request.email || '').replace(/^\s+|\s+$/g, '');
+      var photos = request.photos || [];
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if (subject.length < 3 || subject.length > 160) {
+        cb(problem('input', 'Subject must be between 3 and 160 characters.'));
+        return;
+      }
+      if ((message === '' && !photos.length) || message.length > MAX_SUPPORT_TEXT) {
+        cb(problem('input', 'Describe the issue in 1 to 8000 characters.'));
+        return;
+      }
+      if (!supportEmailOk(email)) {
+        cb(problem('input', 'Enter a valid email address, so we can send you a copy of every reply.'));
+        return;
+      }
+      if (photos.length > MAX_SUPPORT_PHOTOS) {
+        cb(problem('input', 'Attach up to 4 photos per message.'));
+        return;
+      }
+      call('POST', 'support_open', { subject: subject, message: message, email: email, attachments: photoList(photos) }, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'open');
+          return;
+        }
+        if (!body || !whole(body.ticket_id)) {
+          cb(problem('server', 'The shop server did not confirm the ticket. Look in your tickets before sending it again.'));
+          return;
+        }
+        cb(null, body.ticket_id);
+      });
+    }
+
+    /** Sends a message in a ticket (a closed ticket is reopened by it). request: {ticketId, message, photos, replyToId} -> cb(error) or cb(null, messageId). */
+    function supportReply(request, cb) {
+      var message = String(request.message || '').replace(/^\s+|\s+$/g, '');
+      var photos = request.photos || [];
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if ((message === '' && !photos.length) || message.length > MAX_SUPPORT_TEXT) {
+        cb(problem('input', 'Message must be between 1 and 8000 characters.'));
+        return;
+      }
+      if (photos.length > MAX_SUPPORT_PHOTOS) {
+        cb(problem('input', 'Attach up to 4 photos per message.'));
+        return;
+      }
+      var body = { ticket_id: request.ticketId, message: message, attachments: photoList(photos) };
+      if (request.replyToId) {
+        body.reply_to_id = request.replyToId;
+      }
+      call('POST', 'support_reply', body, function (error, response, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'reply');
+          return;
+        }
+        cb(null, response && whole(response.message_id) ? response.message_id : 0);
+      });
+    }
+
+    /** Tells support that the replies up to this one have been read (the shop sees them as read). Quiet: a failure is simply tried again later. */
+    function supportMarkRead(ticketId, throughMessageId, cb) {
+      call('POST', 'support_mark_read', { ticket_id: ticketId, through_message_id: throughMessageId }, function (error) {
+        (cb || function () {})(error || null);
+      });
+    }
+
+    /** A reaction (one of SUPPORT_REACTIONS) on a message; emoji null or '' takes the shop's reaction off. */
+    function supportReact(ticketId, messageId, emoji, cb) {
+      call('POST', 'support_react', { ticket_id: ticketId, message_id: messageId, emoji: emoji || '' }, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'react');
+          return;
+        }
+        cb(null);
+      });
+    }
+
+    function supportClose(ticketId, cb) {
+      call('POST', 'support_close', { ticket_id: ticketId }, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'close');
+          return;
+        }
+        cb(null);
+      });
+    }
+
+    /** What the page needs to fetch a photo of a ticket (it is private: the device key goes in the request). */
+    function supportPhotoRequest(attachmentId) {
+      if (!supportSignedIn() || !whole(attachmentId)) {
+        return null;
+      }
+      return { url: baseUrl + '?action=support_attachment&id=' + encodeURIComponent(attachmentId), headers: { 'Authorization': 'Bearer ' + state.device.apiKey } };
     }
 
     // ---- refunds: the apps' Refund screen, for any sale of the shop ------------------------------------------------------------
@@ -1863,6 +2120,7 @@
         shopName: catalog && catalog.business ? catalog.business.businessName : '',
         currency: catalog && catalog.business ? catalog.business.currency : 'KES',
         fetchedAt: state.fetchedAt,
+        serverOffsetMs: state.serverOffset || 0,
         productCount: catalog ? catalog.products.length : 0,
         license: licenseStatus(),
         storageOk: storageOk,
@@ -1905,6 +2163,16 @@
       getStatus: getStatus,
       forget: forget,
       sell: sell,
+      licenseDetails: licenseDetails,
+      supportList: supportList,
+      supportThread: supportThread,
+      supportOpen: supportOpen,
+      supportReply: supportReply,
+      supportMarkRead: supportMarkRead,
+      supportReact: supportReact,
+      supportClose: supportClose,
+      supportPhotoRequest: supportPhotoRequest,
+      supportRepliesWaiting: function () { return supportWaiting; },
       refundBlock: refundBlock,
       loadSaleForRefund: loadSaleForRefund,
       quoteRefund: function (source, choices) { return options.sale.quoteRefund(source, choices); },
@@ -1943,6 +2211,51 @@
       parseCents: parseCents,
       _memoryOnly: function () { return memoryOnly; }
     };
+  }
+
+  // ---- support: times, headings and words (the apps' support_chat.dart) -------------------------------------------------------
+  /** The reactions a message can get (the server accepts only these). */
+  var SUPPORT_REACTIONS = ['\u2764\uFE0F', '\uD83D\uDC4D', '\uD83D\uDC4E', '\uD83D\uDE02', '\u203C\uFE0F', '\u2753'];
+  var DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /** The server's "2026-10-06 13:00:21" is UTC: the moment it means, in milliseconds (null when there is none). */
+  function supportTime(text) {
+    var raw = String(text || '').replace(/^\s+|\s+$/g, '');
+    if (!raw) {
+      return null;
+    }
+    var iso = raw.indexOf('T') >= 0 ? raw : raw.replace(' ', 'T') + 'Z';
+    var ms = Date.parse(iso.replace(/(\.\d{3})\d+/, '$1'));
+    return isFinite(ms) ? ms : null;
+  }
+
+  /** "Today", "Yesterday" or "Tue 6 Oct": the little heading above each day's messages (local days). */
+  function supportDayLabel(ms, nowMs) {
+    var day = new Date(ms);
+    var today = new Date(nowMs);
+    var a = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    var b = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+    var days = Math.round((a - b) / 86400000);
+    if (days === 0) {
+      return 'Today';
+    }
+    if (days === 1) {
+      return 'Yesterday';
+    }
+    return DAY_SHORT[day.getDay()] + ' ' + day.getDate() + ' ' + MONTH_SHORT[day.getMonth()];
+  }
+
+  /** "1:05 PM". */
+  function supportClock(ms) {
+    var d = new Date(ms);
+    var hours = d.getHours();
+    var minutes = d.getMinutes();
+    return (hours % 12 === 0 ? 12 : hours % 12) + ':' + (minutes < 10 ? '0' : '') + minutes + ' ' + (hours < 12 ? 'AM' : 'PM');
+  }
+
+  function supportStatusLabel(status) {
+    return status === 'pending' ? 'Reply from support' : (status === 'closed' ? 'Closed' : 'Waiting for support');
   }
 
   // ---- reports: which period is meant ----------------------------------------------------------------------------
@@ -2127,5 +2440,5 @@
     return running !== null && latest !== null && running !== latest;
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable, supportTime: supportTime, supportDayLabel: supportDayLabel, supportClock: supportClock, supportStatusLabel: supportStatusLabel, SUPPORT_REACTIONS: SUPPORT_REACTIONS };
 }));

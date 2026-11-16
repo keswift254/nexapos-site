@@ -227,6 +227,7 @@
     renderProducts();
     renderSales();
     updateReceiptStatus();
+    pollSupportBadge(false);
   }
 
   // ---- tabs --------------------------------------------------------------------------------------------------
@@ -235,7 +236,6 @@
     ui.tab = name;
     for (var i = 0; i < TAB_NAMES.length; i++) {
       show('panel-' + TAB_NAMES[i], TAB_NAMES[i] === name);
-      el('tab-' + TAB_NAMES[i]).className = 'tab' + (TAB_NAMES[i] === name ? ' on' : '');
     }
     show('panel-expenses', name === 'expenses');
     show('panel-refund', name === 'refund');
@@ -243,14 +243,12 @@
     show('panel-support', name === 'support');
     if (name === 'settings') { renderSettings(); }
     if (name === 'support') { renderSupport(); }
+    if (name !== 'support') { stopSupportPoll(); closeSheet(); }
     if (name === 'home') { renderHome(); refreshHome(false); }
     if (name === 'expenses') { openExpenses(); }
     if (name === 'products') { renderProducts(); }
     if (name === 'reports') { initReports(); }
     if (name === 'sales') { renderSales(); }
-  }
-  for (var tabIndex = 0; tabIndex < TAB_NAMES.length; tabIndex++) {
-    (function (name) { el('tab-' + name).onclick = function () { ui.lowOnly = false; showTab(name); }; }(TAB_NAMES[tabIndex]));
   }
 
   // ---- selling: picking products -----------------------------------------------------------------------------
@@ -1387,6 +1385,7 @@
     ui.expList = null;
     ui.expDay = null;
     ui.expToken += 1;
+    clearSupportState();
     ui.refund = null;
     ui.refundReceiptId = null;
     el('refund-password').value = '';
@@ -1426,7 +1425,7 @@
   function armIdleTimer() {
     if (idleTimer) { window.clearTimeout(idleTimer); }
     if (!core.currentUser()) { return; }
-    idleTimer = window.setTimeout(leaveTill, IDLE_LOGOUT_MS);
+    idleTimer = window.setTimeout(leaveTill, (ui.idleMinutes > 0 ? ui.idleMinutes : 10) * 60 * 1000);
   }
   var activity = ['touchstart', 'click', 'keydown'];
   for (var a = 0; a < activity.length; a++) {
@@ -1470,12 +1469,19 @@
   var UI_KEY = 'nexapos-lite-ui';
   try {
     var savedPrefs = storage ? storage.getItem(UI_KEY) : null;
-    ui.hideFigures = !!(savedPrefs && JSON.parse(savedPrefs).hideFigures);
+    var parsedPrefs = savedPrefs ? JSON.parse(savedPrefs) : {};
+    ui.hideFigures = !!parsedPrefs.hideFigures;
+    ui.idleMinutes = parsedPrefs.idleMinutes === 1 || parsedPrefs.idleMinutes === 5 || parsedPrefs.idleMinutes === 30 ? parsedPrefs.idleMinutes : 10;
+    ui.supportEmail = typeof parsedPrefs.supportEmail === 'string' ? parsedPrefs.supportEmail : '';
+    ui.supportSeen = Object.prototype.toString.call(parsedPrefs.supportSeen) === '[object Array]' ? parsedPrefs.supportSeen.slice(-50) : [];
   } catch (e) {
     ui.hideFigures = false;
+    ui.idleMinutes = 10;
+    ui.supportEmail = '';
+    ui.supportSeen = [];
   }
   function savePrefs() {
-    try { if (storage) { storage.setItem(UI_KEY, JSON.stringify({ hideFigures: ui.hideFigures })); } } catch (e) { /* not remembered */ }
+    try { if (storage) { storage.setItem(UI_KEY, JSON.stringify({ hideFigures: ui.hideFigures, idleMinutes: ui.idleMinutes, supportEmail: ui.supportEmail, supportSeen: ui.supportSeen })); } } catch (e) { /* not remembered */ }
   }
 
   // ---- the Dashboard: the apps' home screen, for the whole shop ---------------------------------------------------------
@@ -1661,6 +1667,7 @@
   el('home-newsale').onclick = function () { ui.lowOnly = false; showTab('sell'); showView('pick'); };
   el('home-inventory').onclick = function () { ui.lowOnly = false; showTab('products'); };
   el('home-reports').onclick = function () { showTab('reports'); };
+  el('home-sales').onclick = function () { ui.lowOnly = false; showTab('sales'); };
   el('home-expenses').onclick = function () { showTab('expenses'); };
   el('stat-low-card').onclick = function () { ui.lowOnly = true; showTab('products'); };
   window.setInterval(function () {
@@ -2122,35 +2129,33 @@
   }
 
   /** Sends what is waiting, brings the shop's data up to date and reloads the dashboard figures. */
-  function refreshEverything(buttonIds, messageId) {
+  function refreshEverything(buttonIds, messageId, after) {
     if (ui.syncing) { return; }
     ui.syncing = true;
     var i;
-    for (i = 0; i < buttonIds.length; i++) { el(buttonIds[i]).disabled = true; }
+    for (i = 0; i < buttonIds.length; i++) { if (el(buttonIds[i])) { el(buttonIds[i]).disabled = true; } }
     core.sync(function (error) {
       ui.syncing = false;
-      for (i = 0; i < buttonIds.length; i++) { el(buttonIds[i]).disabled = false; }
+      for (i = 0; i < buttonIds.length; i++) { if (el(buttonIds[i])) { el(buttonIds[i]).disabled = false; } }
       ui.lastSyncProblem = error ? error.message : '';
       if (!core.currentUser()) { route(); return; }
       setText('till-updated', updatedText(core.getStatus()));
       renderAll();
       if (messageId === 'bar-message') {
         barNote(error ? (error.code === 'offline' ? 'warn' : 'bad') : 'ok', error ? error.message : 'Up to date.');
-      } else {
+      } else if (el(messageId)) {
         say(messageId, error ? (error.code === 'offline' ? 'warn' : 'bad') : 'ok', error ? error.message : 'Up to date.');
       }
-      if (ui.tab === 'settings') { renderSettings(); }
+      if (after) { after(error); }
+      pollSupportBadge(true);
       refreshHome(true);
     });
   }
   el('bar-home').onclick = function () { ui.lowOnly = false; showTab('home'); };
-  el('bar-refresh').onclick = function () { refreshEverything(['bar-refresh', 'settings-update'], 'bar-message'); };
+  el('bar-refresh').onclick = function () { refreshEverything(['bar-refresh'], 'bar-message'); };
   el('bar-reports').onclick = function () { showTab('reports'); };
   el('bar-settings').onclick = function () { showTab('settings'); };
   el('bar-support').onclick = function () { showTab('support'); };
-  el('settings-back').onclick = function () { showTab('home'); };
-  el('support-back').onclick = function () { showTab('home'); };
-  el('settings-update').onclick = function () { refreshEverything(['bar-refresh', 'settings-update'], 'settings-message'); };
   el('home-search').onclick = function () {
     ui.lowOnly = false;
     showTab('products');
@@ -2158,37 +2163,829 @@
     if (box) { box.focus(); }
   };
 
-  function renderSettings() {
+  // ===================================================================================================================
+  // Support: tickets and a real conversation, as in the apps. The shop's own support endpoints do the work (see the core);
+  // this is only the screens: the list of conversations, a new ticket (with photos), and the conversation itself with its
+  // bubbles, the quoted message, reactions, "Delivered", photos, and a reply box that keeps trying until it gets through.
+  // ===================================================================================================================
+  var Core = window.NexaLiteCore;
+  var support = { view: 'list', tickets: [], ticket: null, thread: null, replyTo: null, photos: [], ticketPhotos: [], pending: null, failed: null, sending: false, readThrough: 0, markingRead: false, loading: false, timer: null, badgeAt: 0, blobs: {} };
+  var SUPPORT_POLL_MS = 20000;
+  var SUPPORT_BADGE_MS = 120000;
+  var MAX_PHOTOS = 4;
+
+  function clearSupportState() {
+    stopSupportPoll();
+    for (var id in support.blobs) {
+      if (support.blobs.hasOwnProperty(id)) {
+        try { (window.URL || window.webkitURL).revokeObjectURL(support.blobs[id]); } catch (e) { /* nothing to let go of */ }
+      }
+    }
+    support.view = 'list'; support.tickets = []; support.ticket = null; support.thread = null; support.replyTo = null; support.photos = []; support.ticketPhotos = [];
+    support.pending = null; support.failed = null; support.sending = false; support.readThrough = 0; support.badgeAt = 0; support.blobs = {};
+    closeSheet();
+    closePhotoView();
+    el('chat').innerHTML = '';
+    el('chat-text').value = '';
+    el('ticket-message').value = '';
+    el('ticket-subject').value = '';
+    updateSupportBadge();
+  }
+
+  function showSupportView(name) {
+    support.view = name;
+    show('support-list-view', name === 'list');
+    show('support-new-view', name === 'new');
+    show('support-thread-view', name === 'thread');
+  }
+
+  /** Which reply of support a ticket is waiting on (as the apps do): the ticket and its newest support message. */
+  function replyToken(ticket) { return ticket.id + ':' + (ticket.lastMessageId || ticket.updatedAt); }
+
+  /** Opening Support counts as having seen what is waiting: the dashboard note goes, the button keeps its number until the shop answers. */
+  function markSupportSeen() {
+    for (var i = 0; i < support.tickets.length; i++) {
+      var token = replyToken(support.tickets[i]);
+      if (support.tickets[i].status === 'pending' && ui.supportSeen.indexOf(token) < 0) { ui.supportSeen.push(token); }
+    }
+    ui.supportSeen = ui.supportSeen.slice(-50);
+    savePrefs();
+    updateSupportBadge();
+  }
+
+  /** The number on the Support button, and the note on the dashboard, when support has replied. */
+  function updateSupportBadge() {
+    var count = core.currentUser() ? core.supportRepliesWaiting() : 0;
+    var button = el('bar-support');
+    var old = el('bar-support-badge');
+    if (old) { old.parentNode.removeChild(old); }
+    button.title = count > 0 ? count + ' support ' + (count === 1 ? 'reply' : 'replies') + ' waiting' : 'Support';
+    if (count > 0) {
+      var badge = make('span', 'countbadge', String(count));
+      badge.id = 'bar-support-badge';
+      button.appendChild(badge);
+    }
+    var note = el('home-support');
+    note.innerHTML = '';
+    var unseen = 0;
+    for (var t = 0; t < support.tickets.length; t++) {
+      if (support.tickets[t].status === 'pending' && ui.supportSeen.indexOf(replyToken(support.tickets[t])) < 0) { unseen += 1; }
+    }
+    if (count > 0 && unseen > 0) {
+      var card = make('div', 'notice ok supportnote', unseen + (unseen === 1 ? ' support reply is' : ' support replies are') + ' waiting for your shop. Tap to read ' + (unseen === 1 ? 'it' : 'them') + '.');
+      card.onclick = function () { showTab('support'); };
+      note.appendChild(card);
+    }
+  }
+
+  /** Looks for replies now and then (cheap), so the button can say so. force: even if it was looked at a moment ago. */
+  function pollSupportBadge(force) {
+    if (!core.currentUser() || !core.getStatus().joined || document.hidden) { return; }
+    var now = new Date().getTime();
+    if (!force && now - support.badgeAt < SUPPORT_BADGE_MS) { return; }
+    support.badgeAt = now;
+    core.supportList(function (error, tickets) {
+      if (!core.currentUser()) { return; }
+      if (!error) {
+        support.tickets = tickets;
+        if (ui.tab === 'support' && support.view === 'list') { renderTickets(); }
+      }
+      updateSupportBadge();
+    });
+  }
+  window.setInterval(function () { pollSupportBadge(false); }, SUPPORT_BADGE_MS);
+
+  function supportStamp(text) {
+    var ms = Core.supportTime(text);
+    if (ms === null) { return ''; }
+    var label = Core.supportDayLabel(ms, new Date().getTime());
+    return label + ' ' + Core.supportClock(ms);
+  }
+
+  function renderSupport() {
+    stopSupportPoll();
+    showSupportView('list');
+    renderTickets();
+    loadSupportList(false);
+  }
+
+  function loadSupportList(manual) {
+    if (support.loading) { return; }
+    support.loading = true;
+    if (manual || support.tickets.length === 0) { say('support-message', 'warn', 'Loading your conversations...'); }
+    core.supportList(function (error, tickets) {
+      support.loading = false;
+      if (!core.currentUser()) { return; }
+      if (error) {
+        say('support-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
+        updateSupportBadge();
+        return;
+      }
+      say('support-message', '', '');
+      support.tickets = tickets;
+      support.badgeAt = new Date().getTime();
+      renderTickets();
+      markSupportSeen();
+    });
+  }
+
+  function renderTickets() {
+    var box = el('support-tickets');
+    box.innerHTML = '';
+    var waiting = 0;
+    var i;
+    for (i = 0; i < support.tickets.length; i++) { if (support.tickets[i].status === 'pending') { waiting += 1; } }
+    setText('support-sub', waiting === 0 ? 'Follow your requests and messages from NexaPOS Support.' : (waiting === 1 ? '1 reply' : waiting + ' replies') + ' waiting for your shop.');
+    if (support.tickets.length === 0) {
+      var empty = make('div', 'card');
+      empty.appendChild(make('h2', '', 'Need help?'));
+      empty.appendChild(make('p', '', 'Open a support ticket and describe the issue. Your shop can return here to follow the conversation.'));
+      box.appendChild(empty);
+    }
+    for (i = 0; i < support.tickets.length; i++) {
+      (function (ticket) {
+        var row = make('button', 'ticket' + (ticket.status === 'pending' ? ' waiting' : ''));
+        row.type = 'button';
+        row.appendChild(make('div', 'subject', ticket.subject));
+        var stamp = supportStamp(ticket.updatedAt);
+        row.appendChild(make('div', 'meta', '#' + ticket.id + ' \u00b7 ' + Core.supportStatusLabel(ticket.status) + (stamp ? ' \u00b7 ' + stamp : '')));
+        row.onclick = function () { openThread(ticket); };
+        box.appendChild(row);
+      }(support.tickets[i]));
+    }
+  }
+
+  el('support-back').onclick = function () { stopSupportPoll(); showTab('home'); };
+  el('support-refresh').onclick = function () { loadSupportList(true); };
+  el('support-new').onclick = function () { openNewTicket(); };
+
+  // ---- a new ticket ---------------------------------------------------------------------------------------------------------
+  function lastTicketEmail() {
+    for (var i = 0; i < support.tickets.length; i++) {
+      if (support.tickets[i].email) { return support.tickets[i].email; }
+    }
+    return ui.supportEmail || '';
+  }
+
+  function openNewTicket() {
+    support.ticketPhotos = [];
+    el('ticket-subject').value = '';
+    el('ticket-message').value = '';
+    el('ticket-email').value = lastTicketEmail();
+    say('ticket-message-box', '', '');
+    renderThumbs('ticket-thumbs', support.ticketPhotos);
+    setBusy('ticket-send', false, 'Send ticket');
+    showSupportView('new');
+    el('ticket-subject').focus();
+  }
+  el('support-new-back').onclick = function () { showSupportView('list'); };
+
+  el('ticket-send').onclick = function () {
+    var photos = [];
+    for (var i = 0; i < support.ticketPhotos.length; i++) { photos.push(support.ticketPhotos[i].data); }
+    var email = el('ticket-email').value;
+    say('ticket-message-box', '', '');
+    setBusy('ticket-send', true, 'Sending...');
+    core.supportOpen({ subject: el('ticket-subject').value, message: el('ticket-message').value, email: email, photos: photos }, function (error, ticketId) {
+      setBusy('ticket-send', false, 'Send ticket');
+      if (!core.currentUser()) { return; }
+      if (error) { say('ticket-message-box', error.code === 'offline' ? 'warn' : 'bad', error.message); return; }
+      ui.supportEmail = email.replace(/^\s+|\s+$/g, '');
+      savePrefs();
+      var opened = { id: ticketId, subject: el('ticket-subject').value.replace(/^\s+|\s+$/g, ''), status: 'open', email: ui.supportEmail, createdAt: '', updatedAt: '' };
+      support.tickets = [opened].concat(support.tickets);
+      openThread(opened);
+    });
+  };
+
+  // ---- photos: chosen from the iPad's library or taken with its camera, shrunk, sent as base64 -------------------------------------
+  /** A photo from the file input, shrunk to at most 1280 pixels on its long side and re-saved as a JPEG: cb(error) or cb(null, {data, preview}). */
+  function preparePhoto(file, cb) {
+    var reader = new FileReader();
+    reader.onerror = function () { cb(new Error('That photo could not be read.')); };
+    reader.onload = function () {
+      var image = new Image();
+      image.onerror = function () { cb(new Error('That file is not a photo this iPad can read.')); };
+      image.onload = function () {
+        var scale = Math.min(1, 1280 / Math.max(image.width, image.height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        var url = canvas.toDataURL('image/jpeg', 0.8);
+        cb(null, { data: url.split(',')[1], preview: url });
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function renderThumbs(boxId, list) {
+    var box = el(boxId);
+    box.innerHTML = '';
+    for (var i = 0; i < list.length; i++) {
+      (function (index) {
+        var cell = make('div', 'thumb');
+        var img = make('img');
+        img.src = list[index].preview;
+        img.alt = 'Photo ' + (index + 1);
+        var remove = make('button', '', '\u00d7');
+        remove.type = 'button';
+        remove.setAttribute('aria-label', 'Take this photo off');
+        remove.onclick = function () { list.splice(index, 1); renderThumbs(boxId, list); };
+        cell.appendChild(img);
+        cell.appendChild(remove);
+        box.appendChild(cell);
+      }(i));
+    }
+  }
+
+  /** Adds the chosen files to [list] (at most four in all), then calls [then]. */
+  function addPhotos(input, list, boxId, messageBoxId) {
+    var files = input.files ? Array.prototype.slice.call(input.files) : [];
+    input.value = '';
+    var room = MAX_PHOTOS - list.length;
+    if (files.length > room) { say(messageBoxId, 'warn', 'Attach up to 4 photos per message.'); files = files.slice(0, Math.max(room, 0)); }
+    (function next(index) {
+      if (index >= files.length) { renderThumbs(boxId, list); return; }
+      preparePhoto(files[index], function (error, photo) {
+        if (error) { say(messageBoxId, 'bad', error.message); } else { list.push(photo); }
+        next(index + 1);
+      });
+    }(0));
+  }
+  el('ticket-attach').onclick = function () { el('ticket-file').click(); };
+  el('ticket-file').onchange = function () { addPhotos(el('ticket-file'), support.ticketPhotos, 'ticket-thumbs', 'ticket-message-box'); };
+  el('chat-attach').onclick = function () { el('chat-file').click(); };
+  el('chat-file').onchange = function () { addPhotos(el('chat-file'), support.photos, 'chat-thumbs', 'thread-message'); };
+
+  /** A private photo of a ticket: fetched with the device key, then shown from memory. */
+  function loadPhoto(node, id) {
+    if (support.blobs[id]) { node.src = support.blobs[id]; return; }
+    var request = core.supportPhotoRequest(id);
+    if (!request || !window.XMLHttpRequest) { return; }
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', request.url, true);
+    xhr.responseType = 'blob';
+    for (var name in request.headers) { if (request.headers.hasOwnProperty(name)) { xhr.setRequestHeader(name, request.headers[name]); } }
+    xhr.onload = function () {
+      if (xhr.status === 200 && xhr.response) {
+        var url = (window.URL || window.webkitURL).createObjectURL(xhr.response);
+        support.blobs[id] = url;
+        node.src = url;
+      }
+    };
+    xhr.send();
+  }
+
+  function closePhotoView() {
+    var old = el('photo-view');
+    if (old) { old.parentNode.removeChild(old); }
+  }
+  function showPhotoView(url) {
+    closePhotoView();
+    var cover = make('div', 'photoview');
+    cover.id = 'photo-view';
+    var img = make('img');
+    img.src = url;
+    var close = make('button', 'secondary', 'Close');
+    close.type = 'button';
+    cover.onclick = closePhotoView;
+    cover.appendChild(img);
+    cover.appendChild(close);
+    document.body.appendChild(cover);
+  }
+
+  // ---- the conversation ---------------------------------------------------------------------------------------------------------
+  function stopSupportPoll() {
+    if (support.timer) { window.clearInterval(support.timer); support.timer = null; }
+  }
+  function startSupportPoll() {
+    stopSupportPoll();
+    // New replies and reactions from support show up without leaving and coming back.
+    support.timer = window.setInterval(function () {
+      if (support.view === 'thread' && ui.tab === 'support' && !document.hidden && !support.sending && core.currentUser()) { loadThread(true, false); }
+    }, SUPPORT_POLL_MS);
+  }
+
+  function openThread(ticket) {
+    support.ticket = ticket;
+    support.thread = null;
+    support.replyTo = null;
+    support.photos = [];
+    support.pending = null;
+    support.failed = null;
+    support.readThrough = 0;
+    el('chat').innerHTML = '';
+    el('chat-text').value = '';
+    el('chat-text').style.height = '44px';
+    renderThumbs('chat-thumbs', support.photos);
+    renderReplying();
+    setText('thread-subject', ticket.subject);
+    setText('thread-status', Core.supportStatusLabel(ticket.status));
+    setText('thread-email', ticket.email ? 'Email updates: ' + ticket.email : '');
+    show('thread-close', ticket.status !== 'closed');
+    say('thread-message', 'warn', 'Loading the conversation...');
+    showSupportView('thread');
+    loadThread(false, true);
+    startSupportPoll();
+  }
+
+  function nearBottom() {
+    var chat = el('chat');
+    return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120;
+  }
+  function scrollChatToEnd() {
+    var chat = el('chat');
+    chat.scrollTop = chat.scrollHeight;
+    window.setTimeout(function () { chat.scrollTop = chat.scrollHeight; }, 60);
+  }
+
+  /** quiet: a background refresh - it never replaces what is on screen with an error. */
+  function loadThread(quiet, toEnd) {
+    var ticketId = support.ticket.id;
+    core.supportThread(ticketId, function (error, thread) {
+      if (!core.currentUser() || !support.ticket || support.ticket.id !== ticketId || support.view !== 'thread') { return; }
+      if (error) {
+        if (quiet && support.thread) { return; }
+        say('thread-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
+        return;
+      }
+      if (!support.sending) { say('thread-message', '', ''); }
+      var stay = !support.thread || nearBottom();
+      var grew = !support.thread || thread.messages.length > support.thread.messages.length;
+      support.thread = thread;
+      support.ticket = thread.ticket;
+      renderThread();
+      if (toEnd || (stay && grew)) { scrollChatToEnd(); }
+      markRepliesRead();
+    });
+  }
+
+  /** Support is told which replies have been seen (it shows them as read) once they are on the screen. */
+  function markRepliesRead() {
+    if (support.markingRead || document.hidden || !support.thread) { return; }
+    var through = 0;
+    for (var i = 0; i < support.thread.messages.length; i++) {
+      if (support.thread.messages[i].sender === 'support' && support.thread.messages[i].id > through) { through = support.thread.messages[i].id; }
+    }
+    if (through <= support.readThrough) { return; }
+    support.markingRead = true;
+    var ticketId = support.ticket.id;
+    core.supportMarkRead(ticketId, through, function (error) {
+      support.markingRead = false;
+      if (!error) { support.readThrough = through; pollSupportBadge(true); }
+    });
+  }
+
+  function renderThread() {
+    var thread = support.thread;
+    var ticket = thread.ticket;
+    var shop = core.shopInfo().name;
+    setText('thread-subject', ticket.subject);
+    setText('thread-status', Core.supportStatusLabel(ticket.status));
+    setText('thread-email', ticket.email ? 'Email updates: ' + ticket.email : '');
+    show('thread-close', ticket.status !== 'closed');
+    el('chat-text').placeholder = ticket.status === 'closed' ? 'Reply to reopen this ticket...' : 'Reply to this ticket...';
+    var chat = el('chat');
+    var keep = chat.scrollTop;
+    chat.innerHTML = '';
+    var now = new Date().getTime();
+    var previousDay = null;
+    var lastIndex = thread.messages.length - 1;
+    for (var i = 0; i < thread.messages.length; i++) {
+      var message = thread.messages[i];
+      var sent = Core.supportTime(message.createdAt);
+      if (sent !== null) {
+        var dayKey = new Date(sent).toDateString();
+        if (dayKey !== previousDay) { previousDay = dayKey; chat.appendChild(make('div', 'day', Core.supportDayLabel(sent, now))); }
+      }
+      chat.appendChild(messageRow(message, sent, shop, i === lastIndex && !support.pending));
+    }
+    if (support.pending) { chat.appendChild(pendingRow(shop)); }
+    chat.scrollTop = keep;
+  }
+
+  function quoteName(sender, shop) { return sender === 'support' ? 'NexaPOS Support' : (shop || 'Your shop'); }
+
+  function messageRow(message, sent, shop, isLast) {
+    var mine = message.sender === 'customer';
+    var row = make('div', 'msg ' + (mine ? 'mine' : 'theirs'));
+    row.id = 'msg-' + message.id;
+    var bubble = make('div', 'bubble');
+    if (message.replyTo) {
+      var quote = make('div', 'quote');
+      quote.appendChild(make('b', '', quoteName(message.replyTo.sender, shop)));
+      quote.appendChild(document.createTextNode(message.replyTo.snippet || 'Photo'));
+      quote.onclick = function (event) { event.stopPropagation(); jumpTo(message.replyTo.id); };
+      bubble.appendChild(quote);
+    }
+    bubble.appendChild(make('div', 'who', quoteName(message.sender, shop)));
+    if (message.body) { bubble.appendChild(make('div', 'body', message.body)); }
+    for (var a = 0; a < message.attachments.length; a++) {
+      (function (attachment) {
+        var img = make('img', 'photo');
+        img.alt = 'Photo';
+        img.onclick = function (event) { event.stopPropagation(); if (img.src) { showPhotoView(img.src); } };
+        bubble.appendChild(img);
+        loadPhoto(img, attachment.id);
+      }(message.attachments[a]));
+    }
+    bubble.onclick = function () { showMessageMenu(message); };
+    row.appendChild(bubble);
+    if (message.reactions.length > 0) {
+      var reacts = make('div', 'reacts');
+      for (var r = 0; r < message.reactions.length; r++) {
+        reacts.appendChild(make('span', message.reactions[r].sender === 'customer' ? 'me' : '', message.reactions[r].emoji));
+      }
+      row.appendChild(reacts);
+    }
+    if (sent !== null) { row.appendChild(make('div', 'time', Core.supportClock(sent))); }
+    if (isLast && mine) { row.appendChild(make('div', 'status', 'Delivered')); }
+    return row;
+  }
+
+  function pendingRow(shop) {
+    var pending = support.pending;
+    var row = make('div', 'msg mine');
+    var bubble = make('div', 'bubble');
+    bubble.style.opacity = '0.7';
+    bubble.appendChild(make('div', 'who', quoteName('customer', shop)));
+    if (pending.body) { bubble.appendChild(make('div', 'body', pending.body)); }
+    if (pending.photoCount > 0) { bubble.appendChild(make('div', 'body', '\uD83D\uDCF7 ' + pending.photoCount + (pending.photoCount === 1 ? ' photo' : ' photos'))); }
+    row.appendChild(bubble);
+    var status = make('div', 'status' + (pending.failed ? ' bad' : ''), pending.failed ? 'Not delivered. Tap to try again' : 'Sending...');
+    if (pending.failed) { status.style.cursor = 'pointer'; status.onclick = retryChat; bubble.onclick = retryChat; }
+    row.appendChild(status);
+    return row;
+  }
+
+  function jumpTo(messageId) {
+    var row = el('msg-' + messageId);
+    if (!row) { return; }
+    var chat = el('chat');
+    chat.scrollTop = Math.max(0, row.offsetTop - chat.offsetTop - 20);
+    var bubble = row.firstChild;
+    while (bubble && bubble.className !== 'bubble') { bubble = bubble.nextSibling; }
+    if (bubble) {
+      bubble.className = 'bubble flash';
+      window.setTimeout(function () { bubble.className = 'bubble'; }, 1200);
+    }
+  }
+
+  // ---- a message's menu: reactions, Reply, Copy text -------------------------------------------------------------------------------
+  function closeSheet() {
+    var old = el('sheet');
+    if (old) { old.parentNode.removeChild(old); }
+  }
+
+  function myReaction(message) {
+    for (var i = 0; i < message.reactions.length; i++) {
+      if (message.reactions[i].sender === 'customer') { return message.reactions[i].emoji; }
+    }
+    return null;
+  }
+
+  function showMessageMenu(message) {
+    closeSheet();
+    var sheet = make('div', 'sheet');
+    sheet.id = 'sheet';
+    var panel = make('div', 'panel');
+    var emojis = make('div', 'emojis');
+    var mine = myReaction(message);
+    for (var i = 0; i < Core.SUPPORT_REACTIONS.length; i++) {
+      (function (emoji) {
+        var button = make('button', emoji === mine ? 'on' : '', emoji);
+        button.type = 'button';
+        button.onclick = function () { closeSheet(); react(message, emoji === mine ? null : emoji); };
+        emojis.appendChild(button);
+      }(Core.SUPPORT_REACTIONS[i]));
+    }
+    panel.appendChild(emojis);
+    var reply = make('button', 'item', 'Reply');
+    reply.type = 'button';
+    reply.onclick = function () { closeSheet(); startReply(message); };
+    panel.appendChild(reply);
+    if (message.body) {
+      var copy = make('button', 'item', 'Copy text');
+      copy.type = 'button';
+      copy.onclick = function () { closeSheet(); copyText(message.body); };
+      panel.appendChild(copy);
+    }
+    var cancel = make('button', 'item', 'Cancel');
+    cancel.type = 'button';
+    cancel.onclick = closeSheet;
+    panel.appendChild(cancel);
+    sheet.onclick = function (event) { if (event.target === sheet) { closeSheet(); } };
+    sheet.appendChild(panel);
+    document.body.appendChild(sheet);
+  }
+
+  function copyText(text) {
+    var box = document.createElement('textarea');
+    box.value = text;
+    box.setAttribute('readonly', 'readonly');
+    box.style.position = 'fixed';
+    box.style.left = '-1000px';
+    document.body.appendChild(box);
+    box.select();
+    try { box.setSelectionRange(0, text.length); document.execCommand('copy'); say('thread-message', 'ok', 'Copied.'); } catch (e) { say('thread-message', 'warn', 'This iPad would not copy that.'); }
+    document.body.removeChild(box);
+    window.setTimeout(function () { say('thread-message', '', ''); }, 1500);
+  }
+
+  /** Shows the reaction at once; puts things back if the shop's server does not take it. */
+  function react(message, emoji) {
+    var before = support.thread;
+    var messages = [];
+    for (var i = 0; i < before.messages.length; i++) {
+      var m = before.messages[i];
+      if (m.id === message.id) {
+        var kept = [];
+        for (var r = 0; r < m.reactions.length; r++) { if (m.reactions[r].sender !== 'customer') { kept.push(m.reactions[r]); } }
+        if (emoji) { kept.push({ sender: 'customer', emoji: emoji }); }
+        m = { id: m.id, sender: m.sender, body: m.body, createdAt: m.createdAt, replyTo: m.replyTo, reactions: kept, attachments: m.attachments };
+      }
+      messages.push(m);
+    }
+    support.thread = { ticket: before.ticket, messages: messages };
+    renderThread();
+    core.supportReact(support.ticket.id, message.id, emoji, function (error) {
+      if (!error) { return; }
+      support.thread = before;
+      if (support.view === 'thread') { renderThread(); say('thread-message', 'bad', 'Could not save your reaction.'); }
+    });
+  }
+
+  function renderReplying() {
+    var box = el('chat-replying');
+    box.innerHTML = '';
+    if (!support.replyTo) { return; }
+    var bar = make('div', 'replying');
+    var text = make('div');
+    text.appendChild(make('b', '', 'Replying to ' + (support.replyTo.sender === 'support' ? 'NexaPOS Support' : (core.shopInfo().name || 'yourself'))));
+    var snippet = (support.replyTo.body || '').replace(/\s+/g, ' ');
+    text.appendChild(make('div', '', snippet ? (snippet.length > 90 ? snippet.substring(0, 90) + '...' : snippet) : 'Photo'));
+    var cancel = make('button', 'secondary small', 'Cancel');
+    cancel.type = 'button';
+    cancel.onclick = function () { support.replyTo = null; renderReplying(); };
+    bar.appendChild(text);
+    bar.appendChild(cancel);
+    box.appendChild(bar);
+  }
+  function startReply(message) {
+    support.replyTo = message;
+    renderReplying();
+    el('chat-text').focus();
+  }
+
+  // ---- sending ------------------------------------------------------------------------------------------------------------------
+  function sendChat() {
+    var text = el('chat-text').value.replace(/^\s+|\s+$/g, '');
+    if (support.sending || (!text && support.photos.length === 0)) { return; }
+    var draft = { message: text, photos: support.photos.slice(0), replyTo: support.replyTo };
+    el('chat-text').value = '';
+    el('chat-text').style.height = '44px';
+    support.photos = [];
+    support.replyTo = null;
+    renderThumbs('chat-thumbs', support.photos);
+    renderReplying();
+    deliver(draft);
+  }
+
+  /** Shows the message at once as "Sending...", then as delivered once the shop's server has it, or as "Not delivered" to tap and try again. */
+  function deliver(draft) {
+    var photos = [];
+    for (var i = 0; i < draft.photos.length; i++) { photos.push(draft.photos[i].data); }
+    support.sending = true;
+    support.failed = null;
+    support.pending = { body: draft.message, photoCount: draft.photos.length, failed: false };
+    say('thread-message', '', '');
+    renderThread();
+    scrollChatToEnd();
+    var ticketId = support.ticket.id;
+    core.supportReply({ ticketId: ticketId, message: draft.message, photos: photos, replyToId: draft.replyTo ? draft.replyTo.id : null }, function (error) {
+      support.sending = false;
+      if (!core.currentUser() || !support.ticket || support.ticket.id !== ticketId) { return; }
+      if (error) {
+        support.failed = draft;
+        support.pending.failed = true;
+        if (support.view === 'thread') { renderThread(); scrollChatToEnd(); say('thread-message', error.code === 'offline' ? 'warn' : 'bad', error.message); }
+        return;
+      }
+      support.pending = null;
+      if (support.view === 'thread') { loadThread(true, true); }
+    });
+  }
+
+  function retryChat() {
+    if (support.failed && !support.sending) { deliver(support.failed); }
+  }
+
+  el('chat-send').onclick = sendChat;
+  el('chat-text').oninput = function () {
+    var box = el('chat-text');
+    box.style.height = '44px';
+    box.style.height = Math.min(box.scrollHeight, 120) + 'px';
+  };
+  el('thread-back').onclick = function () { stopSupportPoll(); closeSheet(); showSupportView('list'); renderTickets(); loadSupportList(false); };
+  el('thread-refresh').onclick = function () { loadThread(false, false); };
+  el('thread-close').onclick = function () {
+    if (support.sending || !window.confirm('Close this ticket?\nYou can reopen it later by sending another reply.')) { return; }
+    setBusy('thread-close', true, 'Closing...');
+    core.supportClose(support.ticket.id, function (error) {
+      setBusy('thread-close', false, 'Close ticket');
+      if (!core.currentUser()) { return; }
+      if (error) { say('thread-message', 'bad', error.message); return; }
+      loadThread(false, false);
+    });
+  };
+
+  // ===================================================================================================================
+  // Settings: a menu of pages like the apps' (the pages the iPad can really do: the shop's data, licence and updates come
+  // from the shop; the log-out time and the hidden figures are kept on this iPad).
+  // ===================================================================================================================
+  var SETTINGS_PAGES = [
+    { id: 'security', title: 'Security & Privacy', admin: false },
+    { id: 'business', title: 'Business & Receipts', admin: true },
+    { id: 'sync', title: 'Sync & This iPad', admin: true },
+    { id: 'region', title: 'Date, Time & Region', admin: true },
+    { id: 'license', title: 'My License', admin: false },
+    { id: 'update', title: 'Software Update', admin: false }
+  ];
+
+  function isAdmin() {
     var user = core.currentUser();
-    var status = core.getStatus();
-    var info = core.shopInfo();
-    var body = el('settings-rows');
-    body.innerHTML = '';
+    return !!user && user.roleName === 'Admin';
+  }
+
+  function renderSettings() {
+    show('settings-menu-view', true);
+    show('settings-page-view', false);
+    var menu = el('settings-menu');
+    menu.innerHTML = '';
+    for (var i = 0; i < SETTINGS_PAGES.length; i++) {
+      if (SETTINGS_PAGES[i].admin && !isAdmin()) { continue; }
+      (function (page) {
+        var row = make('button', 'menurow');
+        row.type = 'button';
+        row.appendChild(make('span', '', page.title));
+        row.appendChild(make('span', 'chev', '\u203a'));
+        row.onclick = function () { openSettingsPage(page.id); };
+        menu.appendChild(row);
+      }(SETTINGS_PAGES[i]));
+    }
+    menu.appendChild(make('p', 'muted', 'Payments, backups, devices and users are managed in NexaPOS on the shop\'s PC or phone.'));
+  }
+  el('settings-back').onclick = function () { showTab('home'); };
+  el('settings-page-back').onclick = function () { renderSettings(); };
+
+  function openSettingsPage(id) {
+    var box = el('settings-page');
+    box.innerHTML = '';
+    show('settings-menu-view', false);
+    show('settings-page-view', true);
+    var title = '';
+    for (var i = 0; i < SETTINGS_PAGES.length; i++) { if (SETTINGS_PAGES[i].id === id) { title = SETTINGS_PAGES[i].title; } }
+    var card = make('div', 'card');
+    card.appendChild(make('h2', '', title));
+    box.appendChild(card);
+    var table = make('table', 'totals');
+    var body = make('tbody');
+    table.appendChild(body);
     function row(label, value) {
       var tr = make('tr');
       tr.appendChild(make('td', '', label));
       tr.appendChild(make('td', 'num', value));
       body.appendChild(tr);
     }
-    row('Shop', info.name);
-    if (info.address) { row('Address', info.address); }
-    if (info.phone) { row('Phone', info.phone); }
-    row('Currency', info.currency);
-    row('This iPad', status.deviceLabel || '-');
-    row('Signed in as', user ? user.name + ' (' + user.roleName + ')' : '-');
-    row('Shop data updated', status.fetchedAt ? timeText(status.fetchedAt) : 'not yet');
-    row('Licence', status.license && status.license.message ? status.license.message : '-');
-    var waiting = status.pendingSales + status.pendingExpenses + status.pendingRefunds;
-    row('Waiting to be sent', waiting === 0 ? 'nothing' : status.pendingSales + ' sales, ' + status.pendingExpenses + ' expenses, ' + status.pendingRefunds + ' refunds');
-    row('NexaPOS Lite version', el('version-label').innerText || '-');
-  }
-
-  function renderSupport() {
     var info = core.shopInfo();
     var status = core.getStatus();
-    setText('support-quote', info.name + ' \u00b7 ' + (status.deviceLabel || 'Lite till') + ' \u00b7 NexaPOS Lite ' + (el('version-label').innerText || ''));
+    var user = core.currentUser();
+    if (id === 'security') {
+      card.appendChild(make('label', '', 'Log out after no touch for'));
+      var select = document.createElement('select');
+      var choices = [[1, '1 minute'], [5, '5 minutes'], [10, '10 minutes'], [30, '30 minutes']];
+      for (var c = 0; c < choices.length; c++) {
+        var option = make('option', '', choices[c][1]);
+        option.value = String(choices[c][0]);
+        select.appendChild(option);
+      }
+      select.value = String(ui.idleMinutes);
+      select.onchange = function () { ui.idleMinutes = parseInt(select.value, 10) || 10; savePrefs(); armIdleTimer(); };
+      card.appendChild(select);
+      card.appendChild(make('p', 'muted', 'The till logs you out when nobody has touched it for this long, so the next person has to log in.'));
+      card.appendChild(make('label', '', 'Figures on the dashboard'));
+      var seg = make('div', 'seg');
+      var shown = make('button', ui.hideFigures ? '' : 'on', 'Shown');
+      var hidden = make('button', ui.hideFigures ? 'on' : '', 'Hidden');
+      shown.type = 'button';
+      hidden.type = 'button';
+      shown.onclick = function () { ui.hideFigures = false; savePrefs(); renderHome(); openSettingsPage('security'); };
+      hidden.onclick = function () { ui.hideFigures = true; savePrefs(); renderHome(); openSettingsPage('security'); };
+      seg.appendChild(shown);
+      seg.appendChild(hidden);
+      card.appendChild(seg);
+      card.appendChild(make('p', 'muted', 'Hidden shows stars instead of the sales, profit and stock figures (the eye on the dashboard does the same).'));
+    } else if (id === 'business') {
+      card.appendChild(table);
+      row('Business name', info.name);
+      row('Address', info.address || '-');
+      row('Phone', info.phone || '-');
+      row('Receipt footer', info.footer || '-');
+      row('Currency', info.currency);
+      row('Paper width', info.paperWidthMm + ' mm');
+      card.appendChild(make('p', 'muted', 'These are the shop\'s details, as every receipt printed here shows them. To change them, use NexaPOS on the shop\'s PC or phone: the change reaches this iPad by itself.'));
+    } else if (id === 'sync') {
+      card.appendChild(table);
+      row('Shop', info.name);
+      row('This iPad', status.deviceLabel || '-');
+      row('Signed in as', user ? user.name + ' (' + user.roleName + ')' : '-');
+      row('Shop data updated', status.fetchedAt ? timeText(status.fetchedAt) : 'not yet');
+      row('Sales waiting', String(status.pendingSales));
+      row('Expenses waiting', String(status.pendingExpenses));
+      row('Refunds waiting', String(status.pendingRefunds));
+      var syncNote = make('div');
+      syncNote.id = 'settings-sync-message';
+      card.appendChild(syncNote);
+      var update = make('button', 'big', 'Update shop data');
+      update.type = 'button';
+      update.id = 'settings-update';
+      update.onclick = function () {
+        refreshEverything(['bar-refresh', 'settings-update'], 'settings-sync-message', function (error) {
+          if (ui.tab !== 'settings') { return; }
+          openSettingsPage('sync');
+          say('settings-sync-message', error ? (error.code === 'offline' ? 'warn' : 'bad') : 'ok', error ? error.message : 'Up to date.');
+        });
+      };
+      card.appendChild(update);
+      var disconnect = make('button', 'secondary wide', 'Disconnect this iPad');
+      disconnect.type = 'button';
+      disconnect.onclick = function () { el('forget-button').onclick(); };
+      card.appendChild(disconnect);
+      card.appendChild(make('p', 'muted', 'Disconnecting forgets the shop on this iPad: you will need a new invite code from the shop to connect it again.'));
+    } else if (id === 'region') {
+      var now = new Date();
+      var offsetMinutes = -now.getTimezoneOffset();
+      var sign = offsetMinutes < 0 ? '-' : '+';
+      var absolute = Math.abs(offsetMinutes);
+      card.appendChild(table);
+      row('Date and time on this iPad', now.getDate() + ' ' + MONTHS3[now.getMonth()] + ' ' + now.getFullYear() + ' ' + clockText(now));
+      row('Time zone', 'UTC' + sign + two(Math.floor(absolute / 60)) + ':' + two(absolute % 60));
+      row('Currency', info.currency);
+      var differenceMs = status.serverOffsetMs || 0;
+      var minutes = Math.round(Math.abs(differenceMs) / 60000);
+      if (!status.fetchedAt) {
+        card.appendChild(make('div', 'notice warn', 'The shop\'s clock has not been read yet. Update the shop data to compare.'));
+      } else if (minutes < 2) {
+        card.appendChild(make('div', 'notice ok', 'This iPad\'s clock agrees with the shop\'s.'));
+      } else {
+        card.appendChild(make('div', 'notice warn', 'This iPad\'s clock is about ' + minutes + (minutes === 1 ? ' minute ' : ' minutes ') + (differenceMs > 0 ? 'behind' : 'ahead of') + (differenceMs > 0 ? ' the shop\'s.' : ' the shop\'s.') + ' Sales and receipts are stamped with the iPad\'s clock, so set it right: iPad Settings > General > Date & Time > Set Automatically.'));
+      }
+    } else if (id === 'license') {
+      var license = core.licenseDetails();
+      card.appendChild(table);
+      row('Status', license.message);
+      if (license.neverExpires) {
+        row('Valid until', 'It does not expire');
+      } else if (license.validUntil !== null) {
+        var until = new Date(license.validUntil);
+        row('Valid until', until.getDate() + ' ' + MONTHS3[until.getMonth()] + ' ' + until.getFullYear());
+        if (license.daysLeft !== null) { row('Days left', String(license.daysLeft)); }
+      }
+      card.appendChild(make('p', 'muted', 'The licence belongs to the shop: it is renewed from NexaPOS on the shop\'s PC or phone, or by contacting NexaPOS support.'));
+    } else if (id === 'update') {
+      card.appendChild(table);
+      row('NexaPOS Lite version', el('version-label').innerText || '-');
+      var result = make('div');
+      result.id = 'settings-update-result';
+      card.appendChild(result);
+      var check = make('button', 'big', 'Check for a new version');
+      check.type = 'button';
+      check.id = 'settings-check';
+      check.onclick = function () {
+        setBusy('settings-check', true, 'Checking...');
+        say('settings-update-result', '', '');
+        checkForUpdate(function (outcome) {
+          if (!el('settings-check')) { return; }
+          setBusy('settings-check', false, 'Check for a new version');
+          if (outcome === 'newer') {
+            say('settings-update-result', 'warn', 'A newer version is ready.');
+            var now2 = make('button', 'big', 'Update now');
+            now2.type = 'button';
+            now2.onclick = function () { el('update-now').onclick(); };
+            el('settings-update-result').appendChild(now2);
+          } else if (outcome === 'same') {
+            say('settings-update-result', 'ok', 'You have the newest version.');
+          } else {
+            say('settings-update-result', 'warn', 'Could not reach the shop server. Check the internet connection and try again.');
+          }
+        });
+      };
+      card.appendChild(check);
+      card.appendChild(make('p', 'muted', 'The till looks for a new version by itself every few minutes. Nothing is changed in the middle of a sale, and the sales saved on this iPad are kept.'));
+    }
   }
-
   // ---- refunds: the apps' Refund screen -------------------------------------------------------------------------------
   // An owner (Admin) or a Manager opens a sale (from Reports, or the Sales tab), chooses how many of each item go back and
   // whether they return to the shelf, gives a reason and types their own password again. NexaPOS only RECORDS the refund:
@@ -2430,17 +3227,18 @@
   var updateLatestText = '';
   setText('version-label', window.NexaLiteCore.pageBuild(runningPage) || '');
 
-  function checkForUpdate() {
-    if (updateChecking) { return; }
+  function checkForUpdate(done) {
+    if (updateChecking) { if (done) { done('busy'); } return; }
     updateChecking = true;
     xhrHttp({ method: 'GET', url: 'index.html?check=' + new Date().getTime(), headers: {} }, function (error, response) {
       updateChecking = false;
-      if (error || !response || response.status !== 200) { return; }
+      if (error || !response || response.status !== 200) { if (done) { done('error'); } return; }
       var newer = window.NexaLiteCore.updateAvailable(runningPage, response.text);
       var signature = window.NexaLiteCore.pageSignature(response.text);
       if (newer) { updateLatestText = response.text; }
       show('update-bar', newer && signature !== updateDismissed);
       if (!newer) { say('update-message', '', ''); }
+      if (done) { done(newer ? 'newer' : 'same'); }
     });
   }
 
@@ -2463,10 +3261,10 @@
     window.location.reload();
   };
 
-  window.setInterval(checkForUpdate, UPDATE_CHECK_MS);
-  window.setTimeout(checkForUpdate, 8000);
-  window.addEventListener('online', checkForUpdate, false);
-  window.addEventListener('pageshow', checkForUpdate, false);
+  window.setInterval(function () { checkForUpdate(); }, UPDATE_CHECK_MS);
+  window.setTimeout(function () { checkForUpdate(); }, 8000);
+  window.addEventListener('online', function () { checkForUpdate(); }, false);
+  window.addEventListener('pageshow', function () { checkForUpdate(); }, false);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkForUpdate(); } }, false);
 
   // ---- start -------------------------------------------------------------------------------------------------
