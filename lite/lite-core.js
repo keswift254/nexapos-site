@@ -617,7 +617,7 @@
      * Reports screen. cb(error) or cb(null, report): the money in cents, the list of sales and of expenses, and
      * waitingHere = how many sales on THIS iPad have not reached the shop yet (they are not in the figures).
      */
-    function loadReport(range, cb) {
+    function loadReport(range, cb, withRecords) {
       if (!state.device || !state.device.apiKey || !state.joined) {
         cb(problem('input', 'This device has not joined a shop yet.'));
         return;
@@ -627,7 +627,7 @@
         return;
       }
       var query = 'lite_report&from_utc=' + encodeURIComponent(range.fromUtc) + '&to_utc=' + encodeURIComponent(range.toUtc) +
-        '&from_date=' + encodeURIComponent(range.fromDate) + '&to_date=' + encodeURIComponent(range.toDate);
+        '&from_date=' + encodeURIComponent(range.fromDate) + '&to_date=' + encodeURIComponent(range.toDate) + (withRecords ? '&records=1' : '');
       call('GET', query, null, function (error, body, status) {
         if (error) {
           if (error.code === 'unauthorized' || error.code === 'forbidden') {
@@ -655,6 +655,194 @@
         }
         cb(null, out);
       });
+    }
+
+    // ---- expenses: the apps' Expenses screen, for the whole shop -------------------------------------------------------
+    // An owner (Admin) or a Manager can add and delete expenses, as in the apps. They are saved on this iPad first and sent
+    // with the sales. The shop's sync only accepts a deletion from the device that entered the expense, so this iPad can only
+    // delete the expenses it entered itself (the others are shown, without a Delete button).
+
+    /** Why expenses cannot be used right now, or null. */
+    function expenseBlock() {
+      var blocked = sellBlock();
+      if (blocked) {
+        return blocked;
+      }
+      if (session.roleName !== 'Admin' && session.roleName !== 'Manager') {
+        return 'Only an owner (Admin) or a Manager can use Expenses.';
+      }
+      return null;
+    }
+
+    function findExpenseEntry(id) {
+      for (var i = 0; i < state.outbox.length; i++) {
+        if (state.outbox[i].id === id) {
+          return state.outbox[i];
+        }
+      }
+      return null;
+    }
+
+    /**
+     * request: {title, amountCents, expenseDate (yyyy-mm-dd), note} -> {ok:true, expense} | {ok:false, message}.
+     * Saved on this iPad before anything is sent; call flush() afterwards.
+     */
+    function addExpense(request) {
+      var blocked = expenseBlock();
+      if (blocked) {
+        return { ok: false, message: blocked };
+      }
+      var built = options.sale.buildExpense({
+        title: request.title,
+        amountCents: request.amountCents,
+        expenseDate: request.expenseDate,
+        note: request.note,
+        userId: session.id,
+        deviceId: state.device.id,
+        now: now,
+        nextRev: state.nextRev,
+        randomHex: random
+      });
+      if (!built.ok) {
+        return built;
+      }
+      state.nextRev = built.nextRev;
+      state.outbox.push({ id: built.expense.id, changes: built.changes, receipt: null, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: 'expense', expense: built.expense, enteredByName: session.name });
+      save();
+      return { ok: true, expense: built.expense };
+    }
+
+    /**
+     * Deletes an expense from the list loadExpenses gave: one that is still waiting on this iPad is simply taken back (the shop
+     * never saw it); one the shop holds is deleted with the app's own record, if THIS iPad entered it.
+     */
+    function deleteExpense(id) {
+      var blocked = expenseBlock();
+      if (blocked) {
+        return { ok: false, message: blocked };
+      }
+      var waiting = findExpenseEntry(id);
+      if (waiting && waiting.kind === 'expense') {
+        if (flushing) {
+          return { ok: false, message: 'The expense is being sent to the shop right now. Try again in a moment.' };
+        }
+        state.outbox.splice(state.outbox.indexOf(waiting), 1);
+        save();
+        return { ok: true, taken: true };
+      }
+      var known = lastExpenses[id];
+      if (!known) {
+        return { ok: false, message: 'That expense is not in the list any more. Reload the list.' };
+      }
+      var earlier = findExpenseEntry(id + ':delete');
+      if (earlier && earlier.status === 'pending') {
+        return { ok: false, message: 'That expense is already being deleted.' };
+      }
+      if (earlier) {
+        state.outbox.splice(state.outbox.indexOf(earlier), 1);
+      }
+      var built = options.sale.deleteExpense({ original: known, deviceId: state.device.id, now: now, nextRev: state.nextRev });
+      if (!built.ok) {
+        return built;
+      }
+      state.nextRev = built.nextRev;
+      state.outbox.push({ id: id + ':delete', changes: built.changes, receipt: null, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: 'expense-delete', expense: known });
+      save();
+      return { ok: true };
+    }
+
+    /** Lets go of an expense entry the shop refused (it never reached the books). */
+    function discardExpense(entryId) {
+      var blocked = expenseBlock();
+      if (blocked) {
+        return { ok: false, message: blocked };
+      }
+      var entry = findExpenseEntry(entryId);
+      if (!entry || !isExpenseEntry(entry) || entry.status !== 'rejected') {
+        return { ok: false, message: 'That expense is not waiting.' };
+      }
+      state.outbox.splice(state.outbox.indexOf(entry), 1);
+      save();
+      return { ok: true };
+    }
+
+    var lastExpenses = {};
+
+    /**
+     * What this iPad has entered for a day and not sent yet, as list rows (the same shape loadExpenses gives). It is how the
+     * list can still show them when there is no connection. `seen` (optional) = ids the shop already lists.
+     */
+    function waitingExpenses(day, seen) {
+      var rows = [];
+      if (expenseBlock()) {
+        return rows;
+      }
+      for (var i = 0; i < state.outbox.length; i++) {
+        var entry = state.outbox[i];
+        if (entry.kind !== 'expense' || entry.status !== 'pending' || entry.expense.expenseDate !== day || (seen && seen[entry.id])) {
+          continue;
+        }
+        rows.push({ id: entry.id, title: entry.expense.title, amountCents: entry.expense.amountCents, note: entry.expense.note || '', enteredByName: entry.enteredByName,
+          createdAt: entry.expense.createdAt, mine: true, pending: true, deleting: false });
+      }
+      return rows;
+    }
+
+    /**
+     * One day's expenses for the whole shop, oldest first (as in the apps), with what this iPad has entered but not sent yet merged in.
+     * cb(error) or cb(null, {day, rows, totalCents, truncated, waiting, refused}); a row is {id, title, amountCents, note,
+     * enteredByName, createdAt, mine (this iPad may delete it), pending (not sent yet), deleting (a deletion not sent yet)}.
+     * A row being deleted stays visible, marked, and is left out of the total.
+     */
+    function loadExpenses(day, cb) {
+      var blocked = expenseBlock();
+      if (blocked) {
+        cb(problem('input', blocked));
+        return;
+      }
+      loadReport(reportRange('expenses', { date: day }), function (error, report) {
+        if (error) {
+          cb(error);
+          return;
+        }
+        var deviceId = state.device.id;
+        var rows = [];
+        var seen = {};
+        lastExpenses = {};
+        var listedAway = 0;
+        var i;
+        for (i = 0; i < report.expenses.length; i++) {
+          var listed = report.expenses[i];
+          var record = listed.record && typeof listed.record === 'object' ? listed.record : null;
+          var removing = findExpenseEntry(listed.id + ':delete');
+          if (removing && removing.status !== 'pending') {
+            removing = null;
+          }
+          seen[listed.id] = true;
+          if (record) {
+            lastExpenses[listed.id] = record;
+          }
+          rows.push({ id: listed.id, title: listed.title, amountCents: listed.amountCents, note: listed.note || '', enteredByName: listed.enteredByName, createdAt: listed.createdAt,
+            mine: !!record && record.createdByDeviceId === deviceId && !record.deletedAt, pending: false, deleting: !!removing });
+          if (removing) {
+            listedAway += listed.amountCents;
+          }
+        }
+        var waitingRows = waitingExpenses(day, seen);
+        var addedCents = 0;
+        for (i = 0; i < waitingRows.length; i++) {
+          rows.push(waitingRows[i]);
+          addedCents += waitingRows[i].amountCents;
+        }
+        var waiting = waitingRows.length;
+        var refused = 0;
+        for (i = 0; i < state.outbox.length; i++) {
+          if (isExpenseEntry(state.outbox[i]) && state.outbox[i].status === 'rejected') {
+            refused += 1;
+          }
+        }
+        cb(null, { day: day, rows: rows, totalCents: report.expensesTotalCents - listedAway + addedCents, truncated: report.expensesTruncated, waiting: waiting, refused: refused });
+      }, true);
     }
 
     // ---- the dashboard ------------------------------------------------------------------------------------------
@@ -1220,7 +1408,9 @@
     /** A settle refused only because the sale is already in the very state it was settling to. */
     function alreadySettled(entry, message) {
       return (entry.kind === 'settle-paid' && String(message).indexOf("'paid' to 'paid'") >= 0)
-        || (entry.kind === 'settle-cancelled' && String(message).indexOf("'cancelled' to 'cancelled'") >= 0);
+        || (entry.kind === 'settle-cancelled' && String(message).indexOf("'cancelled' to 'cancelled'") >= 0)
+        // an expense somebody already deleted (the very outcome wanted)
+        || (entry.kind === 'expense-delete' && String(message).indexOf('is already deleted') >= 0);
     }
 
     function firstPending() {
@@ -1232,18 +1422,31 @@
       return null;
     }
 
+    function isExpenseEntry(entry) {
+      return entry.kind === 'expense' || entry.kind === 'expense-delete';
+    }
+
+    /** pending / rejected are SALES (and their settlements); pendingExpenses / rejectedExpenses are the expenses entered on this iPad. */
     function outboxSummary() {
       var pending = 0;
+      var pendingExpenses = 0;
       var rejected = [];
+      var rejectedExpenses = [];
       for (var i = 0; i < state.outbox.length; i++) {
         var entry = state.outbox[i];
-        if (entry.status === 'pending') {
+        if (isExpenseEntry(entry)) {
+          if (entry.status === 'pending') {
+            pendingExpenses += 1;
+          } else if (entry.status === 'rejected') {
+            rejectedExpenses.push({ id: entry.id, title: entry.expense.title, amountCents: entry.expense.amountCents, deleting: entry.kind === 'expense-delete', message: entry.error, createdAt: entry.createdAt });
+          }
+        } else if (entry.status === 'pending') {
           pending += 1;
         } else if (entry.status === 'rejected') {
           rejected.push({ id: entry.id, saleNumber: entry.receipt.saleNumber, totalCents: entry.receipt.totalCents, message: entry.error, createdAt: entry.createdAt });
         }
       }
-      return { pending: pending, rejected: rejected };
+      return { pending: pending, rejected: rejected, pendingExpenses: pendingExpenses, rejectedExpenses: rejectedExpenses };
     }
 
     /**
@@ -1291,7 +1494,7 @@
             if (index >= 0) {
               state.outbox.splice(index, 1);
             }
-            var done = historyEntry(entry.receipt.saleId);
+            var done = entry.receipt ? historyEntry(entry.receipt.saleId) : null;
             if (done) {
               done.status = 'sent';
             }
@@ -1323,7 +1526,7 @@
           entry.status = 'rejected';
           entry.error = error.message;
           refused += 1;
-          var shown = historyEntry(entry.receipt.saleId);
+          var shown = entry.receipt ? historyEntry(entry.receipt.saleId) : null;
           if (shown) {
             shown.status = 'rejected';
             shown.error = error.message;
@@ -1381,6 +1584,8 @@
         storageOk: storageOk,
         deviceLabel: state.device ? state.device.label : '',
         pendingSales: outboxSummary().pending,
+        pendingExpenses: outboxSummary().pendingExpenses,
+        rejectedExpenses: outboxSummary().rejectedExpenses.length,
         onlineWaiting: state.online.length,
         heldSales: state.held.length,
         rejectedSales: outboxSummary().rejected.length,
@@ -1423,6 +1628,12 @@
       todaySummary: todaySummary,
       loadReport: loadReport,
       loadDashboard: loadDashboard,
+      expenseBlock: expenseBlock,
+      addExpense: addExpense,
+      deleteExpense: deleteExpense,
+      discardExpense: discardExpense,
+      loadExpenses: loadExpenses,
+      waitingExpenses: waitingExpenses,
       stockFigures: stockFigures,
       receiptSheet: receiptSheet,
       heldList: heldList,

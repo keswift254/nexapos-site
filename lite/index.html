@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-13.3">
+  <meta name="lite-build" content="2026-11-16.1">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -101,6 +101,13 @@
     .rowline { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #E4E1E9; border-bottom: 1px solid var(--surface-highest); }
     .rowline .r { text-align: right; white-space: nowrap; padding-left: 10px; font-weight: 500; }
     .rowline .a { min-width: 0; word-wrap: break-word; }
+    /* Expenses */
+    .daynav { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+    .daynav button { -webkit-flex: none; flex: none; margin: 0; min-width: 44px; padding: 0 12px; font-size: 20px; }
+    .daynav input { -webkit-flex: 1; flex: 1; min-width: 0; margin: 0 8px; text-align: center; }
+    .daytitle { text-align: center; font-weight: 500; margin: 10px 0 0; }
+    .rowline .r button { margin: 6px 0 0; }
+    .rowline.going { opacity: .5; }
     .grandrow { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; padding: 6px 0; font-size: 16px; }
     .grandrow.bold { font-weight: 700; font-size: 18px; }
     .reporthead { margin: 10px 0 0; }
@@ -225,6 +232,7 @@
           <button id="home-newsale" class="big" type="button">New Sale</button>
           <button id="home-inventory" class="secondary" type="button">Inventory</button>
           <button id="home-reports" class="secondary" type="button">Reports</button>
+          <button id="home-expenses" class="secondary hidden" type="button">Expenses</button>
         </div>
         <p class="muted" id="home-updated" style="text-align:center"></p>
         <div style="text-align:center"><button id="home-refresh" class="outlined small" type="button">Refresh</button></div>
@@ -368,6 +376,40 @@
         <div id="report-result"></div>
       </div>
 
+      <!-- EXPENSES: the apps' Expenses screen (an owner or a manager), for the whole shop -->
+      <div id="panel-expenses" class="hidden">
+        <button id="exp-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Dashboard</button>
+        <div class="card">
+          <h2>Expenses</h2>
+          <div class="daynav">
+            <button id="exp-prev" class="secondary" type="button" aria-label="The day before">&lsaquo;</button>
+            <input id="exp-date" type="date" aria-label="Day">
+            <button id="exp-next" class="secondary" type="button" aria-label="The day after">&rsaquo;</button>
+          </div>
+          <div class="daytitle" id="exp-title"></div>
+        </div>
+        <div id="exp-message"></div>
+        <div id="exp-refused"></div>
+        <div class="card">
+          <div class="grandrow bold"><span>Total</span><span id="exp-total">-</span></div>
+          <div id="exp-list"></div>
+          <p class="muted" id="exp-note"></p>
+        </div>
+        <div id="exp-form" class="card hidden">
+          <h2>Add expense</h2>
+          <label for="exp-name" style="margin-top:0">Expense name</label>
+          <input id="exp-name" type="text" maxlength="200" autocomplete="off">
+          <label for="exp-amount">Amount</label>
+          <input id="exp-amount" type="text" inputmode="decimal" autocomplete="off">
+          <label for="exp-notetext">Note (optional)</label>
+          <input id="exp-notetext" type="text" maxlength="500" autocomplete="off">
+          <div id="exp-form-message"></div>
+          <button id="exp-save" type="button">Save</button>
+          <button id="exp-cancel" class="secondary" type="button">Cancel</button>
+        </div>
+        <button id="exp-add" class="big" type="button">Add Expense</button>
+      </div>
+
       <!-- SALES -->
       <div id="panel-sales" class="hidden">
         <div class="card">
@@ -392,9 +434,9 @@
   <div id="print-receipt"></div>
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
-  <script src="lite-sale.js?v=3"></script>
+  <script src="lite-sale.js?v=4"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=11"></script>
-  <script src="lite.js?v=11"></script>
+  <script src="lite-core.js?v=12"></script>
+  <script src="lite.js?v=12"></script>
 </body>
 </html>

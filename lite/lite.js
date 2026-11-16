@@ -152,6 +152,17 @@
     if (status.heldSales > 0 && containerId === 'login-sales') {
       box.appendChild(make('div', 'notice warn', status.heldSales + (status.heldSales === 1 ? ' sale is' : ' sales are') + ' on hold on this iPad. Log in to open ' + (status.heldSales === 1 ? 'it' : 'them') + '.'));
     }
+    if (status.rejectedExpenses > 0 && containerId !== 'login-sales') {
+      box.appendChild(make('div', 'notice bad', status.rejectedExpenses + (status.rejectedExpenses === 1 ? ' expense was' : ' expenses were') + ' NOT recorded by the shop. Open Expenses (on the Dashboard) to see why.'));
+    }
+    if (status.pendingExpenses > 0 && containerId !== 'login-sales') {
+      var expenseWarn = make('div', 'notice warn', status.pendingExpenses + (status.pendingExpenses === 1 ? ' expense is' : ' expenses are') + ' saved on this iPad and waiting to be sent to the shop. ');
+      var expenseSend = make('button', 'small secondary', 'Send now');
+      expenseSend.type = 'button';
+      expenseSend.onclick = function () { doSync(true); };
+      expenseWarn.appendChild(expenseSend);
+      box.appendChild(expenseWarn);
+    }
     if (status.pendingSales > 0) {
       var warn =make('div', 'notice warn', status.pendingSales + (status.pendingSales === 1 ? ' sale is' : ' sales are') + ' saved on this iPad and waiting to be sent to the shop. ' + (ui.lastSyncProblem ? ui.lastSyncProblem + ' ' : ''));
       var send = make('button', 'small secondary', 'Send now');
@@ -214,7 +225,9 @@
       show('panel-' + TAB_NAMES[i], TAB_NAMES[i] === name);
       el('tab-' + TAB_NAMES[i]).className = 'tab' + (TAB_NAMES[i] === name ? ' on' : '');
     }
+    show('panel-expenses', name === 'expenses');
     if (name === 'home') { renderHome(); refreshHome(false); }
+    if (name === 'expenses') { openExpenses(); }
     if (name === 'products') { renderProducts(); }
     if (name === 'reports') { initReports(); }
     if (name === 'sales') { renderSales(); }
@@ -1324,6 +1337,7 @@
       if (core.currentUser()) {
         setText('till-updated', updatedText(core.getStatus()));
         renderAll();
+        if (ui.tab === 'expenses' && canUseExpenses()) { loadExpenseDay(ui.expDay); }
       } else {
         route();
       }
@@ -1342,6 +1356,12 @@
     ui.homeAt = 0;
     ui.report = null;
     ui.lowOnly = false;
+    ui.expList = null;
+    ui.expDay = null;
+    ui.expToken += 1;
+    el('exp-list').innerHTML = '';
+    el('exp-refused').innerHTML = '';
+    show('exp-form', false);
     core.logout();
     ui.receiptId = null;
     clearReturnToken();
@@ -1353,9 +1373,10 @@
   el('logout-button').onclick = leaveTill;
   el('forget-button').onclick = function () {
     var pending = core.getStatus().pendingSales + core.getStatus().rejectedSales;
+    var pendingExpenses = core.getStatus().pendingExpenses + core.getStatus().rejectedExpenses;
     var held = core.getStatus().heldSales;
-    var warning = pending > 0
-      ? 'This iPad still holds ' + pending + ' sale(s) that the shop has not recorded. Disconnecting will DELETE them. Are you sure?'
+    var warning = pending > 0 || pendingExpenses > 0
+      ? 'This iPad still holds ' + (pending > 0 ? pending + ' sale(s)' : '') + (pending > 0 && pendingExpenses > 0 ? ' and ' : '') + (pendingExpenses > 0 ? pendingExpenses + ' expense(s)' : '') + ' that the shop has not recorded. Disconnecting will DELETE them. Are you sure?'
       : (held > 0
         ? 'This iPad has ' + held + ' held sale(s). Disconnecting will throw them away. Are you sure?'
         : 'Disconnect this iPad from the shop? You will need a new invite code to connect again.');
@@ -1505,6 +1526,7 @@
 
   function renderHome() {
     updateEyes();
+    show('home-expenses', canUseExpenses());
     var d = ui.home;
     var stock = core.stockFigures();
     function shown(text) { return ui.hideFigures ? '******' : text; }
@@ -1561,6 +1583,7 @@
   el('home-newsale').onclick = function () { ui.lowOnly = false; showTab('sell'); showView('pick'); };
   el('home-inventory').onclick = function () { ui.lowOnly = false; showTab('products'); };
   el('home-reports').onclick = function () { showTab('reports'); };
+  el('home-expenses').onclick = function () { showTab('expenses'); };
   el('stat-low-card').onclick = function () { ui.lowOnly = true; showTab('products'); };
   window.setInterval(function () {
     if (core.currentUser() && ui.tab === 'home' && !document.hidden) { refreshHome(false); }
@@ -1778,6 +1801,199 @@
     line('pp-center', 'Powered by NEXAPOS');
     window.print();
   }
+
+  // ---- Expenses: the apps' Expenses screen (an owner or a manager), for the whole shop ------------------------------------
+  // One day at a time, with a total, Add and Delete - like the app. The list is the shop's (every device's expenses). An
+  // expense is saved on this iPad first and sent with the sales; only the ones entered on this iPad carry a Delete, because
+  // the shop's sync accepts a deletion only from the device that entered the expense.
+  var WEEKDAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  ui.expDay = null;
+  ui.expList = null;
+  ui.expToken = 0;
+
+  function canUseExpenses() {
+    var user = core.currentUser();
+    return !!user && (user.roleName === 'Admin' || user.roleName === 'Manager');
+  }
+
+  function expenseDayTitle(day) {
+    var date = parseDayText(day);
+    if (!date) { return ''; }
+    var written = date.getDate() + ' ' + MONTHS3[date.getMonth()] + ' ' + date.getFullYear();
+    return day === dayText(new Date()) ? 'Today, ' + written : WEEKDAYS_FULL[date.getDay()] + ', ' + written;
+  }
+
+  function expenseRow(r) {
+    var row = make('div', 'rowline' + (r.deleting ? ' going' : ''));
+    var left = make('div', 'a');
+    left.appendChild(make('div', '', r.title));
+    var sub = [timeInReport(r.createdAt, false), r.enteredByName];
+    if (r.note) { sub.push(r.note); }
+    var subLine = make('div', 'sku', sub.join(' \u00b7 '));
+    if (r.pending) { subLine.appendChild(make('span', 'badge waiting', 'Waiting to send')); }
+    if (r.deleting) { subLine.appendChild(make('span', 'badge waiting', 'Being deleted')); }
+    left.appendChild(subLine);
+    row.appendChild(left);
+    var right = make('div', 'r');
+    right.appendChild(make('div', '', money(r.amountCents)));
+    if (r.mine && !r.deleting) {
+      var remove = make('button', 'outlined small', 'Delete');
+      remove.type = 'button';
+      remove.onclick = function () { confirmDeleteExpense(r); };
+      right.appendChild(remove);
+    }
+    row.appendChild(right);
+    return row;
+  }
+
+  /** What the shop could not take (kept on the iPad, never silently dropped). */
+  function renderRefusedExpenses() {
+    var box = el('exp-refused');
+    box.innerHTML = '';
+    var refused = core.outbox().rejectedExpenses;
+    for (var i = 0; i < refused.length; i++) {
+      (function (item) {
+        var card = make('div', 'notice bad', (item.deleting ? 'The shop did not delete "' : 'The shop did not record "') + item.title + '" (' + money(item.amountCents) + '): ' + item.message + ' ');
+        var drop = make('button', 'small secondary', 'Remove this');
+        drop.type = 'button';
+        drop.onclick = function () {
+          var gone = core.discardExpense(item.id);
+          if (!gone.ok) { say('exp-message', 'bad', gone.message); return; }
+          renderBanner('till-sales');
+          renderRefusedExpenses();
+        };
+        card.appendChild(drop);
+        box.appendChild(card);
+      }(refused[i]));
+    }
+  }
+
+  function renderExpenses(list, loading) {
+    var box = el('exp-list');
+    box.innerHTML = '';
+    renderRefusedExpenses();
+    if (!list) {
+      setText('exp-total', '-');
+      box.appendChild(make('p', 'muted', loading ? 'Loading...' : 'The list could not be loaded.'));
+      setText('exp-note', '');
+      return;
+    }
+    setText('exp-total', money(list.totalCents));
+    if (list.rows.length === 0) { box.appendChild(make('p', 'muted', 'No expenses recorded for this day.')); }
+    var foreign = false;
+    for (var i = 0; i < list.rows.length; i++) {
+      box.appendChild(expenseRow(list.rows[i]));
+      if (!list.rows[i].mine && !list.rows[i].pending) { foreign = true; }
+    }
+    var notes = [];
+    if (list.offline) { notes.push('No connection: only what is waiting on this iPad is shown.'); }
+    if (list.truncated) { notes.push('Only the first ' + (list.rows.length - list.waiting) + ' expenses are listed. The total includes all of them.'); }
+    if (foreign) { notes.push('An expense can only be deleted on the device where it was entered.'); }
+    setText('exp-note', notes.join(' '));
+  }
+
+  function loadExpenseDay(day) {
+    if (!canUseExpenses()) { return; }
+    var today = dayText(new Date());
+    if (!parseDayText(day)) { day = today; }
+    if (day > today) { day = today; }
+    ui.expDay = day;
+    el('exp-date').value = day;
+    setText('exp-title', expenseDayTitle(day));
+    el('exp-next').disabled = day >= today;
+    var token = ++ui.expToken;
+    if (!ui.expList || ui.expList.day !== day) { ui.expList = null; renderExpenses(null, true); }
+    core.loadExpenses(day, function (error, list) {
+      if (token !== ui.expToken || !core.currentUser()) { return; }
+      if (error) {
+        say('exp-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
+        if (error.code === 'offline') {
+          var rows = core.waitingExpenses(day);
+          var sum = 0;
+          for (var r = 0; r < rows.length; r++) { sum += rows[r].amountCents; }
+          ui.expList = { day: day, rows: rows, totalCents: sum, truncated: false, waiting: rows.length, offline: true };
+          renderExpenses(ui.expList, false);
+        } else {
+          ui.expList = null;
+          renderExpenses(null, false);
+        }
+        return;
+      }
+      say('exp-message', '', '');
+      ui.expList = list;
+      renderExpenses(list, false);
+    });
+  }
+
+  function openExpenses() {
+    if (!canUseExpenses()) { showTab('home'); return; }
+    show('exp-form', false);
+    show('exp-add', true);
+    say('exp-message', '', '');
+    loadExpenseDay(ui.expDay || dayText(new Date()));
+  }
+
+  function shiftExpenseDay(delta) {
+    var date = parseDayText(ui.expDay || dayText(new Date()));
+    if (!date) { return; }
+    loadExpenseDay(dayText(new Date(date.getFullYear(), date.getMonth(), date.getDate() + delta)));
+  }
+  el('exp-prev').onclick = function () { shiftExpenseDay(-1); };
+  el('exp-next').onclick = function () { shiftExpenseDay(1); };
+  el('exp-date').onchange = function () { if (el('exp-date').value) { loadExpenseDay(el('exp-date').value); } };
+  el('exp-back').onclick = function () { showTab('home'); };
+
+  /** Sends what is waiting (the new expense and anything older), then shows the day again. */
+  function sendExpensesThenShow() {
+    core.flush(function (error) {
+      ui.lastSyncProblem = error ? error.message : '';
+      renderBanner('till-sales');
+      if (!core.currentUser()) { route(); return; }
+      if (error && (error.code === 'unauthorized' || error.code === 'forbidden')) { route(); return; }
+      if (ui.tab === 'expenses') { loadExpenseDay(ui.expDay); }
+    });
+  }
+
+  function confirmDeleteExpense(r) {
+    if (!window.confirm('Delete expense?\n"' + r.title + '" (' + money(r.amountCents) + ') will be removed.')) { return; }
+    var gone = core.deleteExpense(r.id);
+    if (!gone.ok) { say('exp-message', 'bad', gone.message); return; }
+    say('exp-message', '', '');
+    if (gone.taken) {
+      renderBanner('till-sales');
+      loadExpenseDay(ui.expDay);
+    } else {
+      sendExpensesThenShow();
+    }
+  }
+
+  function openExpenseForm(open) {
+    show('exp-form', open);
+    show('exp-add', !open);
+    say('exp-form-message', '', '');
+    if (open) {
+      el('exp-name').value = '';
+      el('exp-amount').value = '';
+      el('exp-notetext').value = '';
+      el('exp-name').focus();
+    }
+  }
+  el('exp-add').onclick = function () { openExpenseForm(true); };
+  el('exp-cancel').onclick = function () { openExpenseForm(false); };
+  el('exp-save').onclick = function () {
+    var typed = el('exp-amount').value;
+    var cents = core.parseCents(typed);
+    if (cents === null) {
+      say('exp-form-message', 'warn', /\S/.test(typed) ? 'Type the amount as a number, for example 1250 or 1250.50.' : 'Enter an expense amount greater than zero.');
+      return;
+    }
+    var added = core.addExpense({ title: el('exp-name').value, amountCents: cents, expenseDate: ui.expDay, note: el('exp-notetext').value });
+    if (!added.ok) { say('exp-form-message', 'bad', added.message); return; }
+    openExpenseForm(false);
+    renderBanner('till-sales');
+    loadExpenseDay(ui.expDay);
+    sendExpensesThenShow();
+  };
 
   // ---- a newer version of the till ---------------------------------------------------------------------------
   // An iPad can keep this page open for days. Every few minutes, and whenever the page comes back to the front or the

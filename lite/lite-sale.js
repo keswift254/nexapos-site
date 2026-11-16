@@ -342,9 +342,125 @@
     return { ok: true, changes: changes, nextRev: rev };
   }
 
+  // ---- expenses ----------------------------------------------------------------------------------------------------
+  // The same rules as the app's ExpenseService (a name, an amount above zero, an optional note, a day) plus the limits the
+  // shop server checks (the SyncGuard in the platform): a real day from 2020 up to today, an amount the shop can hold.
+  var EARLIEST_EXPENSE_DAY = '2020-01-01';
+  var MAX_EXPENSE_CENTS = 100000000;
+
+  /** Control characters out, spaces trimmed, cut to a length (and trimmed again: the cut may leave a space at the end). */
+  function expenseText(text, max) {
+    var cleaned = trim(String(text === undefined || text === null ? '' : text).replace(/[\u0000-\u001f\u007f]/g, ' '));
+    return trim(cleaned.length > max ? cleaned.substring(0, max) : cleaned);
+  }
+
+  /** A real calendar day written yyyy-mm-dd. */
+  function realDay(text) {
+    var found = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text === undefined || text === null ? '' : text));
+    if (!found) {
+      return false;
+    }
+    var year = Number(found[1]);
+    var month = Number(found[2]);
+    var day = Number(found[3]);
+    var date = new Date(year, month - 1, day);
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  }
+
+  /** Today, on this iPad's clock, as yyyy-mm-dd. */
+  function dayOf(ms) {
+    var d = new Date(ms);
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate());
+  }
+
+  /**
+   * A new expense, as the app writes it: ONE record (the expense), entered by the logged-in user, created and updated at the
+   * same moment. input: {title, amountCents, expenseDate (yyyy-mm-dd), note, userId, deviceId, now(), nextRev, randomHex(bytes)}
+   * -> {ok, changes, nextRev, expense: the record} | {ok:false, message}
+   */
+  function buildExpense(input) {
+    var title = expenseText(input.title, 200);
+    if (!title) {
+      return fail('Enter the expense name.');
+    }
+    if (!isInt(input.amountCents) || input.amountCents <= 0) {
+      return fail('Enter an expense amount greater than zero.');
+    }
+    if (input.amountCents > MAX_EXPENSE_CENTS) {
+      return fail('That amount is too large.');
+    }
+    if (!realDay(input.expenseDate)) {
+      return fail('Choose the day of the expense.');
+    }
+    var nowMs = input.now();
+    if (input.expenseDate < EARLIEST_EXPENSE_DAY) {
+      return fail('An expense cannot be dated before 2020.');
+    }
+    if (input.expenseDate > dayOf(nowMs)) {
+      return fail('An expense cannot be dated in the future.');
+    }
+    var stamp = isoStamp(nowMs);
+    var payload = {
+      id: uuid(input.randomHex),
+      createdAt: stamp,
+      updatedAt: stamp,
+      deletedAt: null,
+      localRev: input.nextRev,
+      createdByDeviceId: input.deviceId,
+      syncState: 'local_only',
+      userId: input.userId || null,
+      expenseDate: input.expenseDate,
+      title: title,
+      amountCents: input.amountCents,
+      note: expenseText(input.note, 500) || null
+    };
+    return {
+      ok: true,
+      changes: [{ table_name: 'expenses', row_id: payload.id, local_rev: payload.localRev, updated_at: payload.updatedAt, payload: payload }],
+      nextRev: input.nextRev + 1,
+      expense: payload
+    };
+  }
+
+  /**
+   * Deleting an expense, as the app does it: the same record with deletedAt and updatedAt set to one newer time and the next
+   * revision. Only the device that entered an expense can delete it (the shop's sync accepts nothing else from this iPad).
+   * input: {original: the expense's stored record, deviceId, now(), nextRev} -> {ok, changes, nextRev} | {ok:false, message}
+   */
+  function deleteExpense(input) {
+    var original = input.original;
+    if (!original || typeof original !== 'object' || !original.id) {
+      return fail('That expense could not be found.');
+    }
+    if (original.deletedAt) {
+      return fail('That expense is already deleted.');
+    }
+    if (original.createdByDeviceId !== input.deviceId) {
+      return fail('That expense was entered on another device. It can only be deleted there.');
+    }
+    var payload = {};
+    for (var key in original) {
+      if (Object.prototype.hasOwnProperty.call(original, key)) {
+        payload[key] = original[key];
+      }
+    }
+    var when = laterStamp(original.updatedAt, input.now());
+    payload.updatedAt = when;
+    payload.deletedAt = when;
+    payload.localRev = input.nextRev;
+    return {
+      ok: true,
+      changes: [{ table_name: 'expenses', row_id: payload.id, local_rev: payload.localRev, updated_at: payload.updatedAt, payload: payload }],
+      nextRev: input.nextRev + 1
+    };
+  }
+
   return {
     build: build,
     settle: settle,
+    buildExpense: buildExpense,
+    deleteExpense: deleteExpense,
+    dayOf: dayOf,
     priceFor: priceFor,
     newSaleNumber: newSaleNumber,
     isoStamp: isoStamp,
