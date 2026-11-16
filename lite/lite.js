@@ -244,6 +244,7 @@
     if (name === 'settings') { renderSettings(); }
     if (name === 'support') { renderSupport(); }
     if (name !== 'support') { stopSupportPoll(); closeSheet(); }
+    if (name !== 'settings') { stopLicenseTicker(); }
     if (name === 'home') { renderHome(); refreshHome(false); }
     if (name === 'expenses') { openExpenses(); }
     if (name === 'products') { renderProducts(); }
@@ -2819,6 +2820,138 @@
     return !!user && user.roleName === 'Admin';
   }
 
+  // ---- My License: as in the apps - the device ID on top, the status, and the time left counted down in tiles ----------------------
+  var licenseTimer = null;
+  function stopLicenseTicker() {
+    if (licenseTimer) { window.clearInterval(licenseTimer); licenseTimer = null; }
+  }
+
+  function iconSvg(path) { return '<svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true" focusable="false"><path fill="currentColor" d="' + path + '"/></svg>'; }
+  var LICENSE_ICONS = {
+    ok: iconSvg('M4 6h18V4H4c-1.1 0-2 .9-2 2v11H0v3h14v-3H4V6zm19 2h-6c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h6c.55 0 1-.45 1-1V9c0-.55-.45-1-1-1zm-1 9h-4v-7h4v7z'),
+    expired: iconSvg('M9.31 17l2.44-2.44L14.19 17l1.06-1.06-2.44-2.44 2.44-2.44L14.19 10l-2.44 2.44L9.31 10l-1.06 1.06 2.44 2.44-2.44 2.44L9.31 17zM19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z'),
+    revoked: iconSvg('M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z'),
+    unknown: iconSvg('M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z')
+  };
+
+  /** The four tiles, as the apps draw them: Days, Hours, Minutes, Seconds. */
+  function countdownTiles(ms) {
+    var left = ms < 0 ? 0 : ms;
+    var parts = [['Days', Math.floor(left / 86400000)], ['Hours', Math.floor(left / 3600000) % 24], ['Minutes', Math.floor(left / 60000) % 60], ['Seconds', Math.floor(left / 1000) % 60]];
+    var box = make('div', 'countdown');
+    for (var i = 0; i < parts.length; i++) {
+      var tile = make('div', 'tile');
+      tile.appendChild(make('b', '', (parts[i][1] < 10 ? '0' : '') + parts[i][1]));
+      tile.appendChild(make('span', '', parts[i][0]));
+      box.appendChild(tile);
+    }
+    return box;
+  }
+
+  function licenseExpiryText(ms) {
+    var d = new Date(ms);
+    return d.getDate() + ' ' + MONTHS3[d.getMonth()] + ' ' + d.getFullYear() + ', ' + clockText(d);
+  }
+
+  function renderLicensePage(box) {
+    stopLicenseTicker();
+    box.innerHTML = '';
+    box.appendChild(make('h2', '', 'My License'));
+    var status = core.getStatus();
+    // the device ID, on top (and copyable, as in the apps)
+    var idCard = make('div', 'card');
+    var idRow = make('div', 'deviceid');
+    var idText = make('div', 'idtext');
+    idText.appendChild(make('b', '', 'Device ID'));
+    idText.appendChild(document.createTextNode(status.deviceId || '-'));
+    var copy = make('button', 'secondary small', 'Copy');
+    copy.type = 'button';
+    copy.setAttribute('aria-label', 'Copy device ID');
+    copy.onclick = function () {
+      copyToClipboard(status.deviceId || '');
+      say('license-copied', 'ok', 'Device ID copied');
+      window.setTimeout(function () { say('license-copied', '', ''); }, 1800);
+    };
+    idRow.appendChild(idText);
+    idRow.appendChild(copy);
+    idCard.appendChild(idRow);
+    var copied = make('div');
+    copied.id = 'license-copied';
+    idCard.appendChild(copied);
+    box.appendChild(idCard);
+
+    // the status card
+    var card = make('div', 'card');
+    box.appendChild(card);
+    var note = make('p', 'muted');
+    box.appendChild(note);
+    var recheck = make('button', 'secondary small', 'Check again');
+    recheck.type = 'button';
+    recheck.onclick = function () {
+      recheck.disabled = true;
+      note.textContent = 'Checking with the shop...';
+      core.refresh(function () {
+        recheck.disabled = false;
+        licenseNotice('till-license', core.getStatus());
+        if (el('settings-page') && ui.tab === 'settings') { renderLicensePage(box); }
+      });
+    };
+    box.appendChild(recheck);
+
+    function draw() {
+      var license = core.licenseDetails();
+      var left = license.remainingMs;
+      var kind = 'ok';
+      var label = 'Joined device';
+      var color = '#515B92';
+      if (license.state === 'revoked') { kind = 'revoked'; label = 'Revoked'; color = '#BA1A1A'; }
+      else if (license.state === 'expired' || (left !== null && left <= 0 && !license.neverExpires)) { kind = 'expired'; label = 'Expired'; color = '#EF6C00'; }
+      else if (license.state === 'unknown') { kind = 'unknown'; label = 'Not checked yet'; color = '#767680'; }
+      card.innerHTML = '';
+      var head = make('div', 'licensehead');
+      head.style.color = color;
+      var icon = make('span');
+      icon.innerHTML = LICENSE_ICONS[kind];
+      head.appendChild(icon);
+      head.appendChild(make('span', 'state', label));
+      card.appendChild(head);
+      if (kind === 'revoked') {
+        card.appendChild(make('p', '', 'This license has been revoked. Contact NexaPOS support if you think this is a mistake.'));
+      } else if (kind === 'expired') {
+        card.appendChild(make('p', '', 'The shop\'s license has run out. Ask the shop owner to renew it - this iPad reopens by itself when it receives the renewal.'));
+      } else if (kind === 'unknown') {
+        card.appendChild(make('p', '', 'The shop\'s license has not been checked yet. Update the shop data while online.'));
+      } else if (license.neverExpires || license.validUntil === null) {
+        card.appendChild(make('p', '', 'This iPad follows the shop\'s license, which never expires.'));
+      } else {
+        card.appendChild(make('p', '', 'This iPad follows the shop\'s license, received from the shop. It works with or without internet until that license runs out. The countdown does not depend on this iPad\'s date and time.'));
+        card.appendChild(make('p', '', 'Expires on ' + licenseExpiryText(license.validUntil)));
+        card.appendChild(make('div', 'muted', 'Shop license time remaining'));
+        card.appendChild(countdownTiles(left));
+      }
+      var fetched = core.getStatus().fetchedAt;
+      note.textContent = fetched ? 'Confirmed with the shop at ' + timeText(fetched) + '.' : 'Not confirmed with the shop yet.';
+    }
+    draw();
+    // redrawn every second, so the seconds tile moves
+    licenseTimer = window.setInterval(function () { if (ui.tab === 'settings' && el('settings-page-view').className.indexOf('hidden') < 0) { draw(); } else { stopLicenseTicker(); } }, 1000);
+  }
+
+  /** Puts text on the iPad's clipboard (the long way, which old Safari allows from a tap). */
+  function copyToClipboard(text) {
+    var field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('readonly', 'readonly');
+    field.style.position = 'fixed';
+    field.style.left = '-1000px';
+    document.body.appendChild(field);
+    field.select();
+    var done = false;
+    try { field.setSelectionRange(0, text.length); done = document.execCommand('copy'); } catch (e) { done = false; }
+    document.body.removeChild(field);
+    return done;
+  }
+
   function renderSettings() {
     show('settings-menu-view', true);
     show('settings-page-view', false);
@@ -2838,7 +2971,7 @@
     menu.appendChild(make('p', 'muted', 'Payments, backups, devices and users are managed in NexaPOS on the shop\'s PC or phone.'));
   }
   el('settings-back').onclick = function () { showTab('home'); };
-  el('settings-page-back').onclick = function () { renderSettings(); };
+  el('settings-page-back').onclick = function () { stopLicenseTicker(); renderSettings(); };
 
   function openSettingsPage(id) {
     var box = el('settings-page');
@@ -2943,17 +3076,9 @@
         card.appendChild(make('div', 'notice warn', 'This iPad\'s clock is about ' + minutes + (minutes === 1 ? ' minute ' : ' minutes ') + (differenceMs > 0 ? 'behind' : 'ahead of') + (differenceMs > 0 ? ' the shop\'s.' : ' the shop\'s.') + ' Sales and receipts are stamped with the iPad\'s clock, so set it right: iPad Settings > General > Date & Time > Set Automatically.'));
       }
     } else if (id === 'license') {
-      var license = core.licenseDetails();
-      card.appendChild(table);
-      row('Status', license.message);
-      if (license.neverExpires) {
-        row('Valid until', 'It does not expire');
-      } else if (license.validUntil !== null) {
-        var until = new Date(license.validUntil);
-        row('Valid until', until.getDate() + ' ' + MONTHS3[until.getMonth()] + ' ' + until.getFullYear());
-        if (license.daysLeft !== null) { row('Days left', String(license.daysLeft)); }
-      }
-      card.appendChild(make('p', 'muted', 'The licence belongs to the shop: it is renewed from NexaPOS on the shop\'s PC or phone, or by contacting NexaPOS support.'));
+      box.removeChild(card);
+      renderLicensePage(box);
+      return;
     } else if (id === 'update') {
       card.appendChild(table);
       row('NexaPOS Lite version', el('version-label').innerText || '-');

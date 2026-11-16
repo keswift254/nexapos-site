@@ -455,7 +455,10 @@
         message: summary.message,
         neverExpires: !!(license && license.never_expires === true),
         validUntil: until,
-        daysLeft: summary.daysLeft === undefined ? null : summary.daysLeft
+        daysLeft: summary.daysLeft === undefined ? null : summary.daysLeft,
+        // What is left when read now, by the shop's time (this iPad's clock corrected by how far it was from the shop's when the
+        // shop data was last fetched), in milliseconds; null when the licence has no end.
+        remainingMs: until === null ? null : until - (now() + (state.serverOffset || 0))
       };
     }
 
@@ -2125,6 +2128,7 @@
         license: licenseStatus(),
         storageOk: storageOk,
         deviceLabel: state.device ? state.device.label : '',
+        deviceId: state.device ? state.device.id : '',
         pendingSales: outboxSummary().pending,
         pendingExpenses: outboxSummary().pendingExpenses,
         rejectedExpenses: outboxSummary().rejectedExpenses.length,
