@@ -27,6 +27,10 @@
     .notice.warn { background: #FFF1D6; color: #5E4200; }
     .notice.bad { background: #FFDAD6; color: #93000A; }
     .hidden { display: none !important; }
+    figure { margin: 4px 0 16px; text-align: center; }
+    figure img { width: 100%; max-width: 320px; height: auto; border-radius: 12px; border: 1px solid #C7C5D0; background: #fff; }
+    figcaption { font-size: 13px; color: #46464F; margin-top: 4px; }
+    .num { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px; background: #D61824; color: #fff; font-size: 12px; font-weight: 700; text-align: center; }
   </style>
 </head>
 <body>
@@ -53,25 +57,48 @@
 
       <div class="card">
         <h2>2. On an iPhone: make the shortcut</h2>
+        <p class="muted">The pictures are from an iPhone with iOS 27. The red numbers show where to tap.</p>
         <ol>
           <li>Open the <b>Shortcuts</b> app and tap <b>+</b> to make a new shortcut.</li>
-          <li>Tap <b>Edit</b>, then <b>Automation</b>, and choose <b>Message</b>.</li>
-          <li>In the block that appears, set <b>Message contains</b> to <code>Confirmed</code></li>
-          <li>In <b>Search</b> at the bottom, type <code>Get Contents of URL</code> and add it.</li>
-          <li>Tap its <b>URL</b> and paste the <b>address</b> from step 1.</li>
-          <li>Open that block's extra settings (the small arrow). Set <b>Method</b> to <b>POST</b> and <b>Request Body</b> to <b>JSON</b>.</li>
-          <li>Add a <b>Text</b> field. Name it <code>key</code> and paste the <b>key</b> from step 1 as its value.</li>
-          <li>Add another <b>Text</b> field. Name it <code>text</code>. For its value choose the message that was received (shown as <b>Shortcut Input</b> or <b>Message</b>).</li>
-          <li>Tap the <b>&#9432;</b> button, then <b>Privacy</b>, and turn on <b>Allow Running When Locked</b>.</li>
-          <li>Tap <b>Done</b>.</li>
+          <li>Tap <b>Edit</b>, then <b>Automation</b>, and choose <b>Message</b>. A block "When I receive a message" appears.</li>
+          <li>In that block, set <b>Message contains</b> to <code>Confirmed</code> (picture A, <span class="num">1</span>).</li>
+          <li>Tap <b>Search</b> at the bottom (picture A, <span class="num">2</span>), type <code>Get Contents of URL</code> and tap it to add it.</li>
+          <li>Tap its <b>URL</b> and paste the <b>address</b> from step 1 (use Copy address first).</li>
         </ol>
-        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Confirmed and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step.</p>
+        <figure>
+          <img src="phone-guide/step-a-trigger-and-search.jpg?v=1" alt="Picture A: the Message trigger and the Search bar" width="502" height="1062">
+          <figcaption>Picture A</figcaption>
+        </figure>
+        <ol start="6">
+          <li>Tap the small arrow at the end of the address (picture B, <span class="num">1</span>). Method, Headers and Request Body appear.</li>
+        </ol>
+        <figure>
+          <img src="phone-guide/step-b-tap-the-arrow.jpg?v=1" alt="Picture B: the arrow after the address" width="572" height="660">
+          <figcaption>Picture B</figcaption>
+        </figure>
+        <ol start="7">
+          <li>Tap <b>GET</b> next to Method and choose <b>POST</b> (picture C, <span class="num">3</span>). <b>Request Body</b> must say <b>JSON</b> (<span class="num">4</span>).</li>
+          <li>Tap <b>Add new field</b> and choose <b>Text</b>. In its left box type <code>key</code> - tap &#8679; first so the k stays small. In its right box paste the <b>key</b> from step 1 (use Copy key first) (<span class="num">5</span>).</li>
+          <li>Tap <b>Add new field</b> again and choose <b>Text</b>. In its left box type <code>text</code> (small t). Tap its right box but do not type: tap <b>Message</b> above the keyboard, so a blue <b>Message</b> bubble appears (<span class="num">6</span>).</li>
+          <li>Check that <b>Automation</b> is on (<span class="num">1</span>) and <b>Confirm Before Run</b> is off (<span class="num">2</span>), so the shortcut runs by itself.</li>
+          <li>Tap the back arrow at the top to save.</li>
+        </ol>
+        <figure>
+          <img src="phone-guide/step-c-finished.jpg?v=1" alt="Picture C: the finished shortcut, with the key hidden" width="580" height="860">
+          <figcaption>Picture C: how it looks when it is done (the key is hidden here)</figcaption>
+        </figure>
+        <div class="notice warn">The two names must be exactly <code>key</code> and <code>text</code>, and the key must be in the first row and the blue <b>Message</b> bubble in the second.</div>
+        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Confirmed and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step (steps 4 to 9).</p>
         <p class="muted">If a step looks different on your phone, send a screenshot to NexaPOS support.</p>
       </div>
 
       <div class="card">
         <h2>3. Try it</h2>
-        <p>Check your M-Pesa balance, so that a message arrives. Within a minute, the till shows this phone with <b>Last message</b> and the time, under Settings &gt; M-Pesa Till Phone.</p>
+        <p>Lock this phone and check your M-Pesa balance, so that a message arrives. Then on the till open <b>Settings &gt; M-Pesa Till Phone</b> and tap <b>Refresh</b>: this phone shows <b>Last message</b> with the time (picture D). A balance is not a payment, so it is not listed under Payments received.</p>
+        <figure>
+          <img src="phone-guide/step-d-till-last-message.jpg?v=1" alt="Picture D: the till shows the phone with its last message" width="662" height="200">
+          <figcaption>Picture D: the till has heard from the phone</figcaption>
+        </figure>
         <p>When a customer pays your till or paybill, the payment shows on the till under <b>Payments received</b> a few seconds after the message reaches this phone.</p>
         <p class="muted">Keep this phone switched on and connected to the internet during shop hours.</p>
       </div>
