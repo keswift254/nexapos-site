@@ -419,6 +419,82 @@ test('the list to pick from is the payments that arrived and no sale has used, n
   });
 });
 
+// ---- archiving a suggested payment -----------------------------------------------------------------------------------------------
+test('an archived payment is not offered at checkout (it stays in the shop\'s list)', function (done) {
+  till(function () {
+    return { status: 200, body: { success: true, phones: 1, payments: [
+      { code: 'NEW1PAYM3N', message_received: true, amount_cents: 61000, payer_name: 'JACINTA', archived_at: null, used: null },
+      { code: 'ARCH1VED11', message_received: true, amount_cents: 10000, payer_name: 'OLD', archived_at: '2026-11-18T09:00:00Z', used: null }
+    ] } };
+  }, function (t) {
+    t.core.unusedTillPayments(6, function (error, list) {
+      assert.ifError(error);
+      assert.deepStrictEqual(list.map(function (p) { return p.code; }), ['NEW1PAYM3N']);
+      t.core.tillPayments(24, function (error2, all) {
+        assert.ifError(error2);
+        assert.deepStrictEqual(all.payments.map(function (p) { return [p.code, p.archivedAt]; }), [['NEW1PAYM3N', null], ['ARCH1VED11', Date.parse('2026-11-18T09:00:00Z')]]);
+        done();
+      });
+    });
+  });
+});
+
+test('archiving sends the cleaned-up code (and suggesting again sends archived: false), and reads the payment back', function (done) {
+  till(function (r) {
+    return { status: 200, body: { success: true, payment: { code: r.body.code, message_received: true, amount_cents: 10000, payer_name: 'OLD', archived_at: r.body.archived ? '2026-11-18T09:00:00Z' : null, used: null } } };
+  }, function (t) {
+    t.core.archiveTillPayment(' arch1 ved11 ', true, function (error, payment) {
+      assert.ifError(error);
+      var sent = t.sent[t.sent.length - 1];
+      assert.strictEqual(sent.method, 'POST');
+      assert.ok(/\?action=payment_inbox_archive$/.test(sent.url));
+      assert.strictEqual(sent.auth, 'Bearer key-1');
+      assert.deepStrictEqual(sent.body, { code: 'ARCH1VED11', archived: true });
+      assert.strictEqual(payment.archivedAt, Date.parse('2026-11-18T09:00:00Z'));
+      t.core.archiveTillPayment('ARCH1VED11', false, function (error2, again) {
+        assert.ifError(error2);
+        assert.deepStrictEqual(t.sent[t.sent.length - 1].body, { code: 'ARCH1VED11', archived: false });
+        assert.strictEqual(again.archivedAt, null);
+        done();
+      });
+    });
+  });
+});
+
+test('archiving: a code that cannot be one, or no one logged in, sends nothing; the shop\'s refusals are said plainly', function (done) {
+  var answers = [
+    { status: 404, body: { success: false, reason: 'not_found', message: 'The shop has no M-Pesa payment with this code.' } },
+    'offline',
+    { status: 404, body: { success: false, status: false, message: 'Unknown action.' } },
+    { status: 200, body: { success: true, payment: { code: 'OTHER1CODE', message_received: true } } }
+  ];
+  till(function () { return answers.shift(); }, function (t) {
+    t.core.archiveTillPayment('not a code', true, function (bad) {
+      assert.strictEqual(bad.code, 'input');
+      assert.strictEqual(t.sent.length, 0);
+      t.core.archiveTillPayment('ARCH1VED11', true, function (missing) {
+        assert.deepStrictEqual([missing.code, missing.message], ['not_found', 'The shop has no M-Pesa payment with this code.']);
+        t.core.archiveTillPayment('ARCH1VED11', true, function (offline) {
+          assert.strictEqual(offline.code, 'offline');
+          t.core.archiveTillPayment('ARCH1VED11', true, function (old) {
+            assert.deepStrictEqual([old.code, old.message], ['unavailable', 'The shop server cannot do this yet. Ask the owner to update it.']);
+            t.core.archiveTillPayment('ARCH1VED11', true, function (odd) {
+              assert.strictEqual(odd.code, 'server', 'an answer for another code is not taken for this one');
+              t.core.logout();
+              var sentBefore = t.sent.length;
+              t.core.archiveTillPayment('ARCH1VED11', true, function (out) {
+                assert.deepStrictEqual([out.code, out.message], ['input', 'Log in first.']);
+                assert.strictEqual(t.sent.length, sentBefore);
+                done();
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
 test('the M-Pesa code rule is the shop\'s: capitals, no spaces or dashes, 8 to 12 letters AND numbers', function () {
   var core = Core.create({ baseUrl: BASE, http: function () {}, storage: fakeStorage(), bcrypt: bcrypt, sale: Sale, now: function () { return 1; }, randomHex: Core.randomHex });
   assert.strictEqual(core.mpesaCode(' ukh3 r3nl-tu '), 'UKH3R3NLTU');

@@ -447,11 +447,11 @@ test('payments are asked for over a number of hours and read into plain rows', f
       assert.strictEqual(t.sent[0].auth, 'Bearer key-1');
       assert.deepStrictEqual(result, { phones: 2, payments: [
         { code: 'SJK2TILL9X', messageReceived: true, amountCents: 50000, payerName: 'JOHN DOE', payerPhone: '254712345678', accountRef: '', paidAtText: '17/11/26 9:05 AM',
-          receivedAt: Date.parse('2026-11-17T06:05:09Z'), phoneLabel: "Mama's iPhone", used: null },
+          receivedAt: Date.parse('2026-11-17T06:05:09Z'), phoneLabel: "Mama's iPhone", archivedAt: null, used: null },
         { code: 'SJK3PAYB7Q', messageReceived: true, amountCents: 235000, payerName: 'JANE WANJIKU', payerPhone: '', accountRef: 'INV-1042', paidAtText: '17/11/26 1:05 PM',
-          receivedAt: Date.parse('2026-11-17T10:05:00Z'), phoneLabel: 'Spare', used: { saleNumber: 'ABC-20261117-XY12', amountCents: 230000, usedAt: Date.parse('2026-11-17T10:06:00Z') } },
+          receivedAt: Date.parse('2026-11-17T10:05:00Z'), phoneLabel: 'Spare', archivedAt: null, used: { saleNumber: 'ABC-20261117-XY12', amountCents: 230000, usedAt: Date.parse('2026-11-17T10:06:00Z') } },
         { code: 'TYP3DCODE1', messageReceived: false, amountCents: null, payerName: '', payerPhone: '', accountRef: '', paidAtText: '',
-          receivedAt: null, phoneLabel: '', used: { saleNumber: 'ABC-20261117-ZZ99', amountCents: 30000, usedAt: Date.parse('2026-11-17T09:00:00Z') } }
+          receivedAt: null, phoneLabel: '', archivedAt: null, used: { saleNumber: 'ABC-20261117-ZZ99', amountCents: 30000, usedAt: Date.parse('2026-11-17T09:00:00Z') } }
       ] });
       done();
     });
@@ -489,8 +489,8 @@ test('odd rows are read carefully: no code is no payment, an amount that is not 
       assert.ifError(error);
       assert.strictEqual(result.phones, 0);
       assert.deepStrictEqual(result.payments, [
-        { code: 'ODD1AMOUNT', messageReceived: false, amountCents: null, payerName: '', payerPhone: '', accountRef: '', paidAtText: '', receivedAt: null, phoneLabel: '', used: null },
-        { code: 'ODD2AMOUNT', messageReceived: false, amountCents: null, payerName: '', payerPhone: '', accountRef: '', paidAtText: '', receivedAt: null, phoneLabel: '', used: { saleNumber: '', amountCents: null, usedAt: null } }
+        { code: 'ODD1AMOUNT', messageReceived: false, amountCents: null, payerName: '', payerPhone: '', accountRef: '', paidAtText: '', receivedAt: null, phoneLabel: '', archivedAt: null, used: null },
+        { code: 'ODD2AMOUNT', messageReceived: false, amountCents: null, payerName: '', payerPhone: '', accountRef: '', paidAtText: '', receivedAt: null, phoneLabel: '', archivedAt: null, used: { saleNumber: '', amountCents: null, usedAt: null } }
       ]);
       done();
     });

@@ -693,11 +693,48 @@
         }
         var unused = [];
         for (var i = 0; i < result.payments.length; i++) {
-          if (result.payments[i].messageReceived && !result.payments[i].used) {
+          if (result.payments[i].messageReceived && !result.payments[i].used && result.payments[i].archivedAt === null) {
             unused.push(result.payments[i]);
           }
         }
         cb(null, unused, result.phones);
+      });
+    }
+
+    /**
+     * Archives a payment that arrived ([archived] true: it is no longer suggested at checkout, on any till of the shop) or
+     * suggests it again (false). It stays in the shop's list of payments received, and its code can still be typed.
+     * cb(error) or cb(null, payment).
+     */
+    function archiveTillPayment(code, archived, cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if (!session) {
+        cb(problem('input', 'Log in first.'));
+        return;
+      }
+      var clean = mpesaCode(code);
+      if (!clean) {
+        cb(problem('input', 'That is not an M-Pesa code.'));
+        return;
+      }
+      call('POST', 'payment_inbox_archive', { code: clean, archived: archived !== false }, function (error, body, status) {
+        if (error) {
+          if (body && body.reason === 'not_found') {
+            cb(problem('not_found', 'The shop has no M-Pesa payment with this code.'));
+            return;
+          }
+          cb(tillPhoneFailure(error, body, status));
+          return;
+        }
+        var payment = body && body.payment && typeof body.payment === 'object' ? tillPayment(body.payment) : null;
+        if (!payment || payment.code !== clean) {
+          cb(problem('server', 'The shop server sent an answer this till cannot read. Try again.'));
+          return;
+        }
+        cb(null, payment);
       });
     }
 
@@ -1027,6 +1064,7 @@
         paidAtText: typeof raw.paid_at_text === 'string' ? raw.paid_at_text : '',
         receivedAt: supportTime(raw.received_at),
         phoneLabel: typeof raw.phone_label === 'string' ? raw.phone_label : '',
+        archivedAt: supportTime(raw.archived_at),
         used: used
       };
     }
@@ -2537,6 +2575,7 @@
       tillPayments: tillPayments,
       sellTill: sellTill,
       unusedTillPayments: unusedTillPayments,
+      archiveTillPayment: archiveTillPayment,
       mpesaCode: mpesaCode,
       refundBlock: refundBlock,
       loadSaleForRefund: loadSaleForRefund,

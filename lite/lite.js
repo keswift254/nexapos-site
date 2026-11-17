@@ -721,6 +721,87 @@
     });
   }
 
+  /**
+   * Lets [row] be swiped to the left with a finger. A swipe far enough asks [ask]() and, on yes, calls [done](); anything
+   * else slides the row back. A swipe never counts as a tap on the row. Plain touch events: what Safari 10 on an old iPad has.
+   */
+  function swipeLeft(wrap, row, ask, done) {
+    var start = null;
+    var dx = 0;
+    var sideways = null;
+    var swiped = false;
+    // the red Archive behind the row shows only while the row is moved (its round corners would show it otherwise)
+    var hideRed = null;
+    function showRed(on) {
+      if (hideRed) { window.clearTimeout(hideRed); hideRed = null; }
+      if (on) { wrap.className = 'swipewrap swiping'; return; }
+      hideRed = window.setTimeout(function () { wrap.className = 'swipewrap'; }, 250);
+    }
+    function slide(px, animate) {
+      if (px < 0) { showRed(true); } else { showRed(false); }
+      row.style.webkitTransition = animate ? '-webkit-transform .2s' : 'none';
+      row.style.transition = animate ? 'transform .2s' : 'none';
+      row.style.webkitTransform = 'translateX(' + px + 'px)';
+      row.style.transform = 'translateX(' + px + 'px)';
+    }
+    row.addEventListener('touchstart', function (event) {
+      if (event.touches.length !== 1) { start = null; return; }
+      start = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+      dx = 0;
+      sideways = null;
+      swiped = false;
+      slide(0, false);
+    }, false);
+    row.addEventListener('touchmove', function (event) {
+      if (!start || event.touches.length !== 1) { return; }
+      var mx = event.touches[0].clientX - start.x;
+      var my = event.touches[0].clientY - start.y;
+      if (sideways === null) {
+        if (Math.abs(mx) < 8 && Math.abs(my) < 8) { return; }
+        sideways = Math.abs(mx) > Math.abs(my);
+      }
+      if (!sideways) { return; } // scrolling the page up or down
+      event.preventDefault();
+      dx = Math.min(0, mx);
+      slide(dx, false);
+    }, false);
+    function end() {
+      if (!start) { return; }
+      start = null;
+      if (!sideways) { return; }
+      swiped = true;
+      var far = dx < -Math.max(70, wrap.offsetWidth * 0.3);
+      if (!far) { slide(0, true); return; }
+      slide(-wrap.offsetWidth * 0.4, true);
+      // let the row show where it went before the question covers the screen
+      window.setTimeout(function () {
+        if (ask()) { done(function () { slide(0, true); }); } else { slide(0, true); }
+      }, 220);
+    }
+    row.addEventListener('touchend', end, false);
+    row.addEventListener('touchcancel', function () { start = null; slide(0, true); }, false);
+    // the tap that follows a swipe is not a tap
+    row.addEventListener('click', function (event) {
+      if (swiped) { swiped = false; event.preventDefault(); event.stopPropagation(); }
+    }, true);
+  }
+
+  function archiveFromCheckout(p, slideBack) {
+    core.archiveTillPayment(p.code, true, function (error) {
+      if (error) {
+        slideBack();
+        say('till-pay-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
+        return;
+      }
+      if (core.mpesaCode(el('till-code').value) === p.code) { el('till-code').value = ''; }
+      var kept = [];
+      for (var i = 0; i < (tillList.payments || []).length; i++) { if (tillList.payments[i].code !== p.code) { kept.push(tillList.payments[i]); } }
+      tillList.payments = kept;
+      drawTillList();
+      say('till-pay-message', 'ok', 'Archived: ' + (p.payerName || p.code) + '. It is no longer suggested here. You can still see it in Settings > M-Pesa Till Phone.');
+    });
+  }
+
   function drawTillList() {
     var list = el('till-pay-list');
     list.innerHTML = '';
@@ -742,9 +823,17 @@
           say('sell-message', '', '');
           drawTillList();
         };
-        list.appendChild(row);
+        var wrap = make('div', 'swipewrap');
+        wrap.appendChild(make('span', 'swipeback', 'Archive'));
+        wrap.appendChild(row);
+        swipeLeft(wrap, row, function () {
+          return window.confirm('Are you sure you want to archive this payment?\n' + (p.payerName || 'M-Pesa payment') + ', ' + (p.amountCents === null ? '' : money(p.amountCents) + ', ') + p.code +
+            '\n\nIt will no longer be suggested at checkout. You can still see it in Settings > M-Pesa Till Phone.');
+        }, function (slideBack) { archiveFromCheckout(p, slideBack); });
+        list.appendChild(wrap);
       }(tillList.payments[i]));
     }
+    list.appendChild(make('p', 'muted', 'Swipe a payment to the left to archive it: it is no longer suggested here.'));
   }
   el('till-code').oninput = function () { drawTillList(); };
   el('till-pay-refresh').onclick = function () { setBusy('till-pay-refresh', true, 'Refreshing...'); loadTillList(); };
@@ -3207,8 +3296,24 @@
         facts.push(p.paidAtText || (p.receivedAt ? timeText(p.receivedAt) : ''));
         if (p.phoneLabel) { facts.push('via ' + p.phoneLabel); }
         a.appendChild(make('div', 'sku', facts.join(' \u00b7 ')));
-        a.appendChild(make('div', 'sku', p.used ? 'Used on sale ' + p.used.saleNumber + (p.used.amountCents !== null && p.amountCents !== null && p.used.amountCents !== p.amountCents ? ' (the sale was ' + money(p.used.amountCents) + ')' : '') : 'Not used on a sale yet'));
+        a.appendChild(make('div', 'sku', p.used ? 'Used on sale ' + p.used.saleNumber + (p.used.amountCents !== null && p.amountCents !== null && p.used.amountCents !== p.amountCents ? ' (the sale was ' + money(p.used.amountCents) + ')' : '') : (p.archivedAt ? 'Archived: not suggested at checkout' : 'Not used on a sale yet')));
         r.appendChild(document.createTextNode(p.amountCents === null ? 'Amount not read' : money(p.amountCents)));
+        if (p.archivedAt && !p.used) {
+          (function (payment) {
+            var again = make('button', 'secondary small', 'Suggest again');
+            again.type = 'button';
+            again.onclick = function () {
+              again.disabled = true;
+              core.archiveTillPayment(payment.code, false, function (error) {
+                if (!tillPhoneOpen()) { return; }
+                if (error) { again.disabled = false; say('tillphone-pay-message', error.code === 'offline' ? 'warn' : 'bad', error.message); return; }
+                loadTillPhone(true, function () { say('tillphone-pay-message', 'ok', (payment.payerName || payment.code) + ' is suggested at checkout again.'); });
+              });
+            };
+            r.appendChild(make('br'));
+            r.appendChild(again);
+          }(p));
+        }
       } else {
         a.appendChild(make('b', '', 'Code typed at a till'));
         a.appendChild(make('div', 'sku', [p.code, p.used ? 'Sale ' + p.used.saleNumber : '', p.used && p.used.usedAt ? timeText(p.used.usedAt) : ''].join(' \u00b7 ')));
@@ -3273,7 +3378,8 @@
     card.appendChild(done);
   }
 
-  function loadTillPhone(quiet) {
+  /** [after], if given, runs once the payments are drawn again (a message said then is not wiped by the redraw). */
+  function loadTillPhone(quiet, after) {
     var token = tillPhone.token;
     core.tillPhones(function (error, result) {
       if (token !== tillPhone.token || !tillPhoneOpen()) { return; }
@@ -3299,6 +3405,7 @@
       say('tillphone-pay-message', '', '');
       tillPhone.payments = result.payments;
       drawTillPayments();
+      if (after) { after(); }
     });
   }
 

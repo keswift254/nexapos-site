@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-18.1">
+  <meta name="lite-build" content="2026-11-18.2">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -130,6 +130,11 @@
     .ticket.on { background: #DEE0FF; background: var(--primary-container); box-shadow: 0 0 0 2px #515B92; box-shadow: 0 0 0 2px var(--primary); }
     .ticket .amt { float: right; font-weight: 700; font-size: 16px; padding-left: 10px; }
     .ticket .fits { color: #1B6B2F; font-weight: 600; }
+    .swipewrap { position: relative; margin: 8px 0 0; border-radius: 12px; overflow: hidden; }
+    .swipewrap.swiping { background: #BA1A1A; }
+    .swipewrap .ticket { position: relative; margin: 0; }
+    .swipewrap .swipeback { position: absolute; right: 18px; top: 50%; margin-top: -10px; line-height: 20px; color: #fff; font-weight: 700; display: none; }
+    .swipewrap.swiping .swipeback { display: block; }
     .chip { display: inline-block; font-size: 13px; padding: 4px 12px; border-radius: 8px; border: 1px solid #C7C5D0; border: 1px solid var(--outline-variant); margin: 6px 0 2px; }
     .chat { background: #fff; border: 1px solid #E4E1E9; border-radius: 12px; padding: 10px 10px 4px; margin: 10px 0; height: 56vh; min-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .chat .day { text-align: center; font-size: 12px; color: #46464F; color: var(--on-surface-variant); margin: 10px 0 6px; font-weight: 500; }
@@ -639,7 +644,7 @@
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=5"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=18"></script>
-  <script src="lite.js?v=22"></script>
+  <script src="lite-core.js?v=19"></script>
+  <script src="lite.js?v=23"></script>
 </body>
 </html>
