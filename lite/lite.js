@@ -435,6 +435,7 @@
     el('hold-button').disabled = ui.cart.length === 0 || ui.starting;
     if (blocked) { say('sell-message', 'bad', blocked); }
     else if (!t.discountOk) { say('sell-message', 'warn', 'The discount must be a number, like 50 or 50.50.'); }
+    if (ui.payment === 'till' && tillList && tillList.payments) { drawTillList(); } // which payment fits the total changes with the cart
   }
 
   el('discount').oninput = renderCart;
@@ -451,13 +452,17 @@
   // Payment methods, as in the app: Cash, or an M-Pesa Prompt sent to the customer's phone.
   el('pay-cash').onclick = function () { setPayment('cash'); };
   el('pay-paystack').onclick = function () { setPayment('paystack'); };
+  el('pay-till').onclick = function () { setPayment('till'); };
   function completeLabel() { return ui.payment === 'paystack' ? 'Send M-Pesa Prompt' : 'Complete Sale'; }
   function setPayment(method) {
     ui.payment = method;
     el('pay-cash').className = method === 'cash' ? 'on' : '';
     el('pay-paystack').className = method === 'paystack' ? 'on' : '';
+    el('pay-till').className = method === 'till' ? 'on' : '';
     show('pay-cash-box', method === 'cash');
     show('pay-paystack-box', method === 'paystack');
+    show('pay-till-box', method === 'till');
+    if (method === 'till') { startTillList(); } else { stopTillList(); }
     setText('complete-button', completeLabel());
     say('sell-message', '', '');
     renderCart();
@@ -468,6 +473,7 @@
     el('discount').value = '';
     el('cash-received').value = '';
     el('paystack-phone').value = '';
+    el('till-code').value = '';
     say('sell-message', '', '');
     say('pick-message', '', '');
     setSaleType('retail');
@@ -645,6 +651,10 @@
       startOnlineSale(t, cart, 'prompt');
       return;
     }
+    if (ui.payment === 'till') {
+      completeTillSale(t, cart, false);
+      return;
+    }
     var cashTyped = el('cash-received').value.replace(/^\s+|\s+$/g, '');
     var result = core.sell({
       cart: cart,
@@ -671,6 +681,115 @@
       renderSales();
     });
   };
+  // ---- M-Pesa Till/Paybill: the customer paid the shop's own till or paybill -------------------------------------------------
+  // The payments the shop phone passed on are listed (newest first, the ones no sale has used yet); a tap puts the code in the
+  // box. Complete Sale asks the shop to use that code on this sale, and only then is the sale saved.
+  var tillList = { timer: null, payments: null, phones: null, token: 0 };
+  var TILL_LIST_REFRESH_MS = 8000;
+
+  function stopTillList() {
+    if (!tillList) { return; } // called while the page is still starting up
+    if (tillList.timer) { window.clearInterval(tillList.timer); tillList.timer = null; }
+    tillList.token += 1;
+  }
+
+  function startTillList() {
+    stopTillList();
+    tillList.payments = null;
+    drawTillList();
+    loadTillList();
+    tillList.timer = window.setInterval(function () {
+      if (ui.payment !== 'till' || ui.tab !== 'sell' || !core.currentUser()) { stopTillList(); return; }
+      loadTillList();
+    }, TILL_LIST_REFRESH_MS);
+  }
+
+  function loadTillList() {
+    var token = tillList.token;
+    core.unusedTillPayments(6, function (error, payments, phones) {
+      if (token !== tillList.token) { return; }
+      if (el('till-pay-refresh')) { setBusy('till-pay-refresh', false, 'Refresh'); }
+      if (error) {
+        say('till-pay-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
+        if (tillList.payments === null) { tillList.payments = []; drawTillList(); }
+        return;
+      }
+      tillList.payments = payments;
+      tillList.phones = phones;
+      say('till-pay-message', phones === 0 ? 'warn' : '', phones === 0 ? 'No shop phone passes M-Pesa messages on yet, so payments cannot be checked. An administrator sets one up in Settings > M-Pesa Till Phone.' : '');
+      drawTillList();
+    });
+  }
+
+  function drawTillList() {
+    var list = el('till-pay-list');
+    list.innerHTML = '';
+    if (tillList.payments === null) { list.appendChild(make('p', 'muted', 'Loading the payments...')); return; }
+    if (tillList.payments.length === 0) { list.appendChild(make('p', 'muted', 'No new payment yet. It shows here a few seconds after the M-Pesa message reaches the shop phone.')); return; }
+    var total = totals().total;
+    var picked = core.mpesaCode(el('till-code').value);
+    for (var i = 0; i < tillList.payments.length; i++) {
+      (function (p) {
+        var row = make('button', 'ticket' + (p.code === picked ? ' on' : ''));
+        row.type = 'button';
+        row.appendChild(make('span', 'amt', p.amountCents === null ? '?' : money(p.amountCents)));
+        row.appendChild(make('div', 'subject', p.payerName || 'M-Pesa payment'));
+        var meta = make('div', 'meta', [p.code, p.paidAtText || (p.receivedAt ? timeText(p.receivedAt) : '')].join(' \u00b7 '));
+        if (p.amountCents !== null && p.amountCents === total) { meta.appendChild(document.createTextNode(' \u00b7 ')); meta.appendChild(make('span', 'fits', 'the sale total')); }
+        row.appendChild(meta);
+        row.onclick = function () {
+          el('till-code').value = p.code;
+          say('sell-message', '', '');
+          drawTillList();
+        };
+        list.appendChild(row);
+      }(tillList.payments[i]));
+    }
+  }
+  el('till-code').oninput = function () { drawTillList(); };
+  el('till-pay-refresh').onclick = function () { setBusy('till-pay-refresh', true, 'Refreshing...'); loadTillList(); };
+
+  function completeTillSale(t, cart, acceptAmount) {
+    ui.starting = true;
+    renderCart();
+    setText('complete-button', 'Checking the payment...');
+    say('sell-message', '', '');
+    core.sellTill({ cart: cart, saleType: ui.saleType, discountCents: t.discount, code: el('till-code').value, acceptAmount: acceptAmount }, function (result) {
+      ui.starting = false;
+      setText('complete-button', completeLabel());
+      renderCart();
+      if (result.ok) {
+        var extra = result.payment.amountCents !== null && result.payment.amountCents > result.receipt.totalCents ? result.payment.amountCents - result.receipt.totalCents : 0;
+        resetSale();
+        ui.receiptId = result.receipt.saleId;
+        showReceipt(result.receipt);
+        if (extra > 0) { el('receipt-box').insertBefore(make('div', 'notice ok', 'The customer paid ' + money(result.payment.amountCents) + '. Give back ' + money(extra) + ' in cash.'), el('receipt-box').firstChild); }
+        renderAll();
+        core.flush(function (error) {
+          ui.lastSyncProblem = error ? error.message : '';
+          renderBanner('till-sales');
+          updateReceiptStatus();
+          renderSales();
+        });
+        return;
+      }
+      if (result.code === 'amount_differs') {
+        if (window.confirm('The customer paid ' + money(result.paidCents) + ' for a sale of ' + money(result.totalCents) + '.\nGive back ' + money(result.paidCents - result.totalCents) + ' in cash and complete the sale?')) {
+          completeTillSale(t, cart, true);
+        }
+        return;
+      }
+      if (result.code === 'amount_unknown') {
+        if (window.confirm('The amount in this M-Pesa message could not be read.\nCheck the message on the shop phone. Did the customer pay at least ' + money(result.totalCents) + '?')) {
+          completeTillSale(t, cart, true);
+        }
+        return;
+      }
+      say('sell-message', result.code === 'offline' || result.code === 'not_received' || result.code === 'busy' ? 'warn' : 'bad', result.message);
+      if (result.code === 'used' || result.code === 'not_received') { loadTillList(); }
+    });
+  }
+
   // The other way to take an online payment: a code on the screen that the customer scans with their own phone.
   el('show-qr-button').onclick = function () {
     if (ui.starting) { return; }
@@ -1388,6 +1507,7 @@
     ui.expToken += 1;
     clearSupportState();
     closeTillPhonePage();
+    stopTillList();
     el('settings-page').innerHTML = '';
     ui.refund = null;
     ui.refundReceiptId = null;

@@ -548,6 +548,159 @@
       return { ok: true, receipt: built.receipt };
     }
 
+    // ---- "M-Pesa Till/Paybill": a sale paid to the shop's own till or paybill ---------------------------------------------------
+    // The customer pays the shop's till or paybill from their phone; Safaricom's message reaches the shop phone, which passes it on
+    // to the shop (see the till phone, below). The sale is built first (so it has its id, number and total), the shop is asked to
+    // USE the code on that sale - it says no when no such payment arrived, when it was for another amount, or when the code was
+    // already used on another sale - and only then is the sale saved, as the apps' "M-Pesa (Manual)" sale with the code as its
+    // reference. So it needs the internet, and one payment can never pay for two sales.
+    var tillSelling = false;
+
+    /** An M-Pesa code as typed ("ukh3 r3nl-tu") in its stored form, or null when it cannot be one. The shop's own rule. */
+    function mpesaCode(typed) {
+      var code = String(typed === undefined || typed === null ? '' : typed).replace(/[\s\-]+/g, '').toUpperCase();
+      return /^[A-Z0-9]{8,12}$/.test(code) && /[A-Z]/.test(code) && /[0-9]/.test(code) ? code : null;
+    }
+
+    /**
+     * request: {cart, saleType, discountCents, code, acceptAmount}
+     * -> cb({ok:true, receipt, payment}) |
+     *    cb({ok:false, code, message, paidCents?, totalCents?}) with code one of: input, offline, not_received, used, short,
+     *    amount_differs (paid MORE than the total: the cashier may go ahead with acceptAmount and give the rest back in cash),
+     *    amount_unknown (the message's amount could not be read: acceptAmount after checking the phone), unavailable, busy,
+     *    logged_out, server.
+     */
+    function sellTill(request, cb) {
+      var blocked = sellBlock();
+      if (blocked) {
+        cb({ ok: false, code: 'input', message: blocked });
+        return;
+      }
+      if (tillSelling) {
+        cb({ ok: false, code: 'busy', message: 'The M-Pesa payment is being checked. Wait a moment.' });
+        return;
+      }
+      var code = mpesaCode(request && request.code);
+      if (!code) {
+        cb({ ok: false, code: 'input', message: 'Pick the customer\'s payment, or type its M-Pesa code (the 10 letters and numbers at the start of the message).' });
+        return;
+      }
+      var startRev = state.nextRev;
+      var built = options.sale.build({
+        cart: request.cart,
+        products: productMap(),
+        saleType: request.saleType,
+        paymentMethod: 'mpesa_manual',
+        discountCents: request.discountCents,
+        customerName: '',
+        customerPhone: '',
+        referenceNote: code,
+        cashReceivedCents: null,
+        userId: session.id,
+        deviceId: state.device.id,
+        now: now,
+        nextRev: startRev,
+        randomHex: random
+      });
+      if (!built.ok) {
+        cb({ ok: false, code: 'input', message: built.message });
+        return;
+      }
+      var receipt = built.receipt;
+      var who = session;
+      tillSelling = true;
+      call('POST', 'payment_inbox_claim', {
+        code: code,
+        sale_id: receipt.saleId,
+        sale_number: receipt.saleNumber,
+        amount_cents: receipt.totalCents,
+        require_message: true,
+        accept_amount: request.acceptAmount === true
+      }, function (error, body, status) {
+        tillSelling = false;
+        if (error) {
+          cb(tillSaleRefusal(error, body, status, receipt.totalCents));
+          return;
+        }
+        var payment = body && body.payment && typeof body.payment === 'object' ? tillPayment(body.payment) : null;
+        if (!body || body.success !== true || !payment || payment.code !== code) {
+          // The answer cannot be read: the code may or may not be held for this sale, so it is given back and nothing is saved.
+          releaseTillCode(code, receipt.saleId);
+          cb({ ok: false, code: 'server', message: 'The shop server sent an answer this till cannot read. Nothing was sold. Try again.' });
+          return;
+        }
+        if (session !== who || sellBlock()) {
+          // Logged out (or the till was stopped) while the shop was answering: nothing is sold, and the code is free again.
+          releaseTillCode(code, receipt.saleId);
+          cb({ ok: false, code: 'logged_out', message: 'You were logged out before the payment was checked. Nothing was sold. Log in and try again.' });
+          return;
+        }
+        // Anything saved meanwhile took revisions: this sale's records move up to the next free ones (ids and times stay).
+        var shift = state.nextRev - startRev;
+        if (shift !== 0) {
+          for (var i = 0; i < built.changes.length; i++) {
+            built.changes[i].local_rev += shift;
+            built.changes[i].payload.localRev += shift;
+          }
+          built.nextRev += shift;
+        }
+        receipt.cashierName = session.name;
+        commitBuilt(built, null);
+        cb({ ok: true, receipt: receipt, payment: payment });
+      });
+    }
+
+    /** What the shop said no to, in the till's words. */
+    function tillSaleRefusal(error, body, status, totalCents) {
+      var reason = body && typeof body.reason === 'string' ? body.reason : '';
+      if (error.code === 'offline') {
+        return { ok: false, code: 'offline', message: 'Checking an M-Pesa payment needs the internet. Nothing was sold. Try again when this iPad is online, or take Cash.' };
+      }
+      if (reason === 'not_received') {
+        return { ok: false, code: 'not_received', message: 'No M-Pesa payment with this code has reached the shop yet. Check the code, or wait a few seconds after the customer pays and try again.' };
+      }
+      if (reason === 'amount_differs' && body && whole(body.amount_cents)) {
+        var paid = body.amount_cents;
+        if (paid < totalCents) {
+          return { ok: false, code: 'short', paidCents: paid, totalCents: totalCents, message: 'The customer paid ' + currencyCode() + ' ' + formatCents(paid) + ', which is ' + currencyCode() + ' ' + formatCents(totalCents - paid) + ' less than this sale (' + currencyCode() + ' ' + formatCents(totalCents) + '). Use a payment that covers the whole sale.' };
+        }
+        return { ok: false, code: 'amount_differs', paidCents: paid, totalCents: totalCents, message: 'The customer paid ' + currencyCode() + ' ' + formatCents(paid) + ' for a sale of ' + currencyCode() + ' ' + formatCents(totalCents) + '.' };
+      }
+      if (reason === 'amount_unknown') {
+        return { ok: false, code: 'amount_unknown', totalCents: totalCents, message: 'The amount in this M-Pesa message could not be read.' };
+      }
+      if (status === 404 && !reason) {
+        return { ok: false, code: 'unavailable', message: 'The shop server cannot check M-Pesa payments yet. Ask the owner to update it.' };
+      }
+      if ((error.code === 'unauthorized' || error.code === 'forbidden') && !reason) {
+        return { ok: false, code: error.code, message: 'This iPad is not allowed to do this. Ask the owner to check Connected devices.' };
+      }
+      // anything else (a code already used on another sale: 'used') in the shop's own words
+      return { ok: false, code: reason || error.code || 'server', message: error.message };
+    }
+
+    /** Gives a code back to the shop (best effort: a code that stays held for a sale that does not exist only blocks that code). */
+    function releaseTillCode(code, saleId) {
+      call('POST', 'payment_inbox_release', { code: code, sale_id: saleId }, function () {});
+    }
+
+    /** The payments the shop received in the last [hours] hours that no sale has used yet, newest first: cb(error) or cb(null, list). */
+    function unusedTillPayments(hours, cb) {
+      tillPayments(hours, function (error, result) {
+        if (error) {
+          cb(error);
+          return;
+        }
+        var unused = [];
+        for (var i = 0; i < result.payments.length; i++) {
+          if (result.payments[i].messageReceived && !result.payments[i].used) {
+            unused.push(result.payments[i]);
+          }
+        }
+        cb(null, unused, result.phones);
+      });
+    }
+
     /** Saves a built sale on the iPad (outbox, history, stock). Shared by cash/M-Pesa sales and online ones. */
     function commitBuilt(built, onlineInfo, kind) {
       state.nextRev = built.nextRev;
@@ -2047,7 +2200,7 @@
         cart: cart,
         saleType: draft.saleType === 'wholesale' ? 'wholesale' : 'retail',
         discount: String(draft.discount || '').slice(0, 20),
-        payment: draft.payment === 'paystack' ? 'paystack' : 'cash',
+        payment: draft.payment === 'paystack' || draft.payment === 'till' ? draft.payment : 'cash',
         phone: String(draft.phone || '').slice(0, 30),
         cashReceived: String(draft.cashReceived || '').slice(0, 20)
       };
@@ -2382,6 +2535,9 @@
       addTillPhone: addTillPhone,
       removeTillPhone: removeTillPhone,
       tillPayments: tillPayments,
+      sellTill: sellTill,
+      unusedTillPayments: unusedTillPayments,
+      mpesaCode: mpesaCode,
       refundBlock: refundBlock,
       loadSaleForRefund: loadSaleForRefund,
       quoteRefund: function (source, choices) { return options.sale.quoteRefund(source, choices); },

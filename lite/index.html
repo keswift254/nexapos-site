@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-17.3">
+  <meta name="lite-build" content="2026-11-18.1">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -127,6 +127,9 @@
     .ticket .subject { font-weight: 600; font-size: 16px; word-wrap: break-word; }
     .ticket.waiting .subject { font-weight: 800; }
     .ticket .meta { font-size: 13px; color: #46464F; color: var(--on-surface-variant); margin-top: 4px; }
+    .ticket.on { background: #DEE0FF; background: var(--primary-container); box-shadow: 0 0 0 2px #515B92; box-shadow: 0 0 0 2px var(--primary); }
+    .ticket .amt { float: right; font-weight: 700; font-size: 16px; padding-left: 10px; }
+    .ticket .fits { color: #1B6B2F; font-weight: 600; }
     .chip { display: inline-block; font-size: 13px; padding: 4px 12px; border-radius: 8px; border: 1px solid #C7C5D0; border: 1px solid var(--outline-variant); margin: 6px 0 2px; }
     .chat { background: #fff; border: 1px solid #E4E1E9; border-radius: 12px; padding: 10px 10px 4px; margin: 10px 0; height: 56vh; min-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .chat .day { text-align: center; font-size: 12px; color: #46464F; color: var(--on-surface-variant); margin: 10px 0 6px; font-weight: 500; }
@@ -404,6 +407,7 @@
               <div class="seg" id="pay-seg">
                 <button type="button" id="pay-cash" class="on">Cash</button>
                 <button type="button" id="pay-paystack">M-Pesa Prompt</button>
+                <button type="button" id="pay-till">M-Pesa Till/Paybill</button>
               </div>
               <label for="discount">Discount</label>
               <input id="discount" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
@@ -417,6 +421,14 @@
                 <input id="paystack-phone" type="text" inputmode="tel" placeholder="0712 345 678" autocomplete="off">
                 <p class="muted">An M-Pesa prompt is sent to this phone. The customer enters their M-Pesa PIN and this till updates by itself. Needs the internet.</p>
                 <button id="show-qr-button" class="secondary" type="button" style="margin-top:0">Show a code instead (the customer scans it)</button>
+              </div>
+              <div id="pay-till-box" class="hidden">
+                <p class="muted">The customer pays your M-Pesa till or paybill from their phone. Their payment shows below a few seconds after the M-Pesa message reaches your shop phone: tap it, then Complete Sale. Needs the internet.</p>
+                <div id="till-pay-message"></div>
+                <div id="till-pay-list"></div>
+                <button id="till-pay-refresh" class="secondary small" type="button" style="margin-top:8px">Refresh</button>
+                <label for="till-code">M-Pesa code</label>
+                <input id="till-code" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="Tap a payment above, or type the code">
               </div>
               <div id="sell-message"></div>
               <button id="complete-button" class="big" type="button">Complete Sale</button>
@@ -627,7 +639,7 @@
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=5"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=17"></script>
-  <script src="lite.js?v=21"></script>
+  <script src="lite-core.js?v=18"></script>
+  <script src="lite.js?v=22"></script>
 </body>
 </html>
