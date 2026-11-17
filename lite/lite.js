@@ -1425,10 +1425,18 @@
 
   // ---- log out after 10 minutes with no touch -----------------------------------------------------------------
   var idleTimer = null;
+  // While a new phone's key is on show the till waits at least this long: the administrator is busy on the phone, setting up
+  // the shortcut, and a log out would hide the key for good.
+  var KEY_ON_SHOW_IDLE_MINUTES = 30;
+  function idleMinutesNow() {
+    var minutes = ui.idleMinutes > 0 ? ui.idleMinutes : 10;
+    if (tillPhone && tillPhone.key && minutes < KEY_ON_SHOW_IDLE_MINUTES) { minutes = KEY_ON_SHOW_IDLE_MINUTES; }
+    return minutes;
+  }
   function armIdleTimer() {
     if (idleTimer) { window.clearTimeout(idleTimer); }
     if (!core.currentUser()) { return; }
-    idleTimer = window.setTimeout(leaveTill, (ui.idleMinutes > 0 ? ui.idleMinutes : 10) * 60 * 1000);
+    idleTimer = window.setTimeout(leaveTill, idleMinutesNow() * 60 * 1000);
   }
   var activity = ['touchstart', 'click', 'keydown'];
   for (var a = 0; a < activity.length; a++) {
@@ -3103,7 +3111,7 @@
     var made = tillPhone.key;
     var link = phonePageLink(made.key);
     card.appendChild(make('h2', '', 'Set up "' + made.phone.label + '"'));
-    card.appendChild(make('div', 'notice warn', 'This key is shown only once. Finish setting the phone up before you leave this page.'));
+    card.appendChild(make('div', 'notice warn', 'This key is shown only once. Finish setting the phone up before you leave this page. While the key is on show, this till stays logged in for ' + KEY_ON_SHOW_IDLE_MINUTES + ' minutes without a touch.'));
     card.appendChild(make('p', '', 'On the phone that gets your M-Pesa payment messages, open the camera and point it at this code. It opens a page with the steps.'));
     var drawn = false;
     if (typeof window.qrcode === 'function') {
@@ -3267,6 +3275,7 @@
           return;
         }
         tillPhone.key = result;
+        armIdleTimer(); // the key is on show: the longer wait starts now
         show('tillphone-form', false);
         show('tillphone-add', true);
         label.value = 'Shop phone';

@@ -108,7 +108,7 @@
         <p class="muted">Passing messages on from an Android phone will be part of the NexaPOS app. It is not ready yet.</p>
       </div>
 
-      <p class="muted">Close this page when you have finished. The key is not shown again.</p>
+      <p class="muted">You can go back and forth between Shortcuts and this page: this phone remembers the key for 2 hours, then forgets it. Close this page when you have finished.</p>
     </div>
   </div>
   <script>
@@ -132,19 +132,37 @@
         box.appendChild(note);
       }
 
+      // Setting the shortcut up means going back and forth between Shortcuts and this page, and Safari may reload the page (or
+      // forget this tab's storage) meanwhile. So the key is also kept on this phone for a while, then forgotten.
+      var REMEMBER_MS = 2 * 60 * 60 * 1000;
+      var KEY_PATTERN = /^npk_[a-f0-9]{48}$/;
+      function now() { return new Date().getTime(); }
+      function remembered() {
+        try {
+          var saved = JSON.parse(window.localStorage.getItem(STORE) || 'null');
+          if (saved && KEY_PATTERN.test(saved.key) && typeof saved.when === 'number' && now() - saved.when < REMEMBER_MS && saved.when <= now()) {
+            return saved.key;
+          }
+          window.localStorage.removeItem(STORE); // too old (or unreadable): forgotten
+        } catch (e) { /* no storage: nothing remembered */ }
+        return '';
+      }
+
       var key = '';
       var fromLink = /^#k=(npk_[a-f0-9]{48})$/.exec(window.location.hash || '');
       if (fromLink) {
         key = fromLink[1];
-        try { window.sessionStorage.setItem(STORE, key); } catch (e) { /* private browsing: the key stays in the address */ }
+        var kept = false;
+        try { window.sessionStorage.setItem(STORE, key); kept = window.sessionStorage.getItem(STORE) === key; } catch (e) { kept = false; }
+        try { window.localStorage.setItem(STORE, JSON.stringify({ key: key, when: now() })); kept = kept || remembered() === key; } catch (e1) { /* sessionStorage alone */ }
         try {
-          if (window.sessionStorage.getItem(STORE) === key && window.history && window.history.replaceState) {
+          if (kept && window.history && window.history.replaceState) {
             window.history.replaceState(null, '', window.location.pathname);
           }
         } catch (e2) { /* the address keeps the key, which still works */ }
       } else {
         try { key = window.sessionStorage.getItem(STORE) || ''; } catch (e3) { key = ''; }
-        if (!/^npk_[a-f0-9]{48}$/.test(key)) { key = ''; }
+        if (!KEY_PATTERN.test(key)) { key = remembered(); }
       }
 
       if (!key) {
