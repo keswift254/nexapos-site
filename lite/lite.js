@@ -77,7 +77,51 @@
   }
 
   var Sale = window.NexaLiteSale;
-  var core = window.NexaLiteCore.create({ baseUrl: API, http: xhrHttp, storage: storage, bcrypt: bcryptLib, sale: Sale, barcode: window.NexaLiteBarcode || null });
+  /**
+   * Quick sign in's door to the device: WebAuthn (the face / finger / passcode question) and WebCrypto (the signature check),
+   * their promises made into the callbacks the core uses. Null where the browser has no passkeys (an old iPad): the till then
+   * simply does not offer quick sign in.
+   */
+  function browserPasskeys() {
+    try {
+      var c = window.crypto;
+      if (!window.PublicKeyCredential || window.isSecureContext === false || !navigator.credentials || !c || !c.subtle || !c.getRandomValues) { return null; }
+    } catch (e) {
+      return null;
+    }
+    function u8(buffer) { return buffer ? new Uint8Array(buffer) : null; }
+    return {
+      rpId: window.location.hostname,
+      origin: window.location.origin || (window.location.protocol + '//' + window.location.host),
+      supported: function () { return true; },
+      randomBytes: function (n) { var out = new Uint8Array(n); window.crypto.getRandomValues(out); return out; },
+      create: function (publicKey, cb) {
+        navigator.credentials.create({ publicKey: publicKey }).then(function (made) {
+          var response = made && made.response;
+          var key = response && typeof response.getPublicKey === 'function' ? response.getPublicKey() : null;
+          var alg = response && typeof response.getPublicKeyAlgorithm === 'function' ? response.getPublicKeyAlgorithm() : null;
+          cb(null, made ? { rawId: u8(made.rawId), publicKey: u8(key), algorithm: alg } : null);
+        }, function (error) { cb(error || new Error('failed')); });
+      },
+      get: function (publicKey, cb) {
+        navigator.credentials.get({ publicKey: publicKey }).then(function (answer) {
+          var r = answer && answer.response;
+          cb(null, r ? { rawId: u8(answer.rawId), authenticatorData: u8(r.authenticatorData), clientDataJSON: u8(r.clientDataJSON), signature: u8(r.signature) } : null);
+        }, function (error) { cb(error || new Error('failed')); });
+      },
+      sha256: function (data, cb) {
+        window.crypto.subtle.digest('SHA-256', data).then(function (hash) { cb(null, u8(hash)); }, function (error) { cb(error); });
+      },
+      verify: function (spki, signed, rawSignature, cb) {
+        var subtle = window.crypto.subtle;
+        subtle.importKey('spki', spki, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']).then(function (key) {
+          return subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, rawSignature, signed);
+        }).then(function (ok) { cb(null, ok === true); }, function (error) { cb(error); });
+      }
+    };
+  }
+
+  var core = window.NexaLiteCore.create({ baseUrl: API, http: xhrHttp, storage: storage, bcrypt: bcryptLib, sale: Sale, barcode: window.NexaLiteBarcode || null, passkeys: browserPasskeys() });
 
   // What the cashier is doing right now (kept in memory only).
   var ui = { tab: 'home', home: null, homeAt: 0, homeLoading: false, hideFigures: false, lowOnly: false, reportMode: 'day', reportsReady: false, report: null, cart: [], saleType: 'retail', payment: 'cash', receiptId: null, lastSyncProblem: '', syncing: false, payingId: null, payTimer: null, starting: false };
@@ -205,6 +249,7 @@
       licenseNotice('login-license', status);
       renderBanner('login-sales');
       say('login-revoked', 'bad', status.revoked ? 'This iPad is no longer allowed to use the shop. Ask the owner to check Connected devices, or disconnect it here and connect again.' : '');
+      drawQuickLogin();
       return;
     }
     show('screen-till', true);
@@ -1539,6 +1584,30 @@
       }
       el('invite').value = '';
       route();
+    });
+  };
+
+  /** The quick sign in button on the login screen: only when it is set up here and this browser can do it. */
+  function drawQuickLogin() {
+    var quick = core.quickSignInStatus();
+    var on = quick.supported && !!quick.setUpFor;
+    show('quick-login-button', on);
+    if (on) { setText('quick-login-button', 'Sign in as ' + quick.setUpFor.name + ' with Face ID or passcode'); }
+  }
+
+  el('quick-login-button').onclick = function () {
+    say('login-message', '', '');
+    var label = el('quick-login-button').innerText;
+    setBusy('quick-login-button', true, 'Waiting for Face ID or passcode...');
+    core.quickLogin(function (error) {
+      setBusy('quick-login-button', false, label);
+      if (error) { say('login-message', error.code === 'cancelled' ? 'warn' : 'bad', error.message); return; }
+      el('username').value = '';
+      el('password').value = '';
+      ui.tab = 'home';
+      route();
+      showTab('home');
+      armIdleTimer();
     });
   };
 
@@ -3525,6 +3594,56 @@
     }, TILL_PHONE_REFRESH_MS);
   }
 
+  /** Settings > Security & Privacy: quick sign in (Face ID, Touch ID, a fingerprint or the device's passcode). */
+  function drawQuickSettings(card) {
+    var box = make('div');
+    box.id = 'quick-settings';
+    card.appendChild(box);
+    function draw() {
+      box.innerHTML = '';
+      box.appendChild(make('label', '', 'Quick sign in'));
+      var quick = core.quickSignInStatus();
+      var me = core.currentUser();
+      var said = make('div');
+      said.id = 'quick-message';
+      if (!quick.supported) {
+        box.appendChild(make('p', 'muted', 'This device\'s browser cannot sign in with Face ID, a fingerprint or the passcode. It needs an iPhone or iPad with iOS 16 or newer, or an Android phone.'));
+        if (quick.setUpFor) { box.appendChild(make('p', 'muted', 'It was set up for ' + quick.setUpFor.name + ' on this device.')); }
+        return;
+      }
+      if (!quick.setUpFor) {
+        box.appendChild(make('p', 'muted', 'Sign in with Face ID, Touch ID, a fingerprint or this device\'s passcode instead of typing your password. One person per device.'));
+        var on = make('button', 'big', 'Turn on quick sign in for ' + me.name);
+        on.type = 'button';
+        on.id = 'quick-on';
+        on.onclick = function () {
+          setBusy('quick-on', true, 'Waiting for Face ID or passcode...');
+          core.setUpQuickSignIn(function (error) {
+            if (!el('quick-settings')) { return; }
+            draw();
+            say('quick-message', error ? (error.code === 'cancelled' ? 'warn' : 'bad') : 'ok', error ? error.message : 'Quick sign in is on. Next time, tap "Sign in as ' + me.name + ' with Face ID or passcode".');
+          });
+        };
+        box.appendChild(on);
+      } else {
+        box.appendChild(make('p', '', quick.mine ? 'On for you (' + me.name + ') on this device.' : 'Set up for ' + quick.setUpFor.name + ' on this device.'));
+        if (quick.mine || me.roleName === 'Admin') {
+          var off = make('button', 'secondary wide', 'Turn off quick sign in');
+          off.type = 'button';
+          off.onclick = function () {
+            if (!window.confirm('Turn off quick sign in on this device?\nThe password still works.')) { return; }
+            var result = core.turnOffQuickSignIn();
+            draw();
+            say('quick-message', result.ok ? 'ok' : 'bad', result.ok ? 'Quick sign in is off on this device.' : result.message);
+          };
+          box.appendChild(off);
+        }
+      }
+      box.appendChild(said);
+    }
+    draw();
+  }
+
   /** Puts text on the iPad's clipboard (the long way, which old Safari allows from a tap). */
   function copyToClipboard(text) {
     var field = document.createElement('textarea');
@@ -3608,6 +3727,7 @@
       seg.appendChild(hidden);
       card.appendChild(seg);
       card.appendChild(make('p', 'muted', 'Hidden shows stars instead of the sales, profit and stock figures (the eye on the dashboard does the same).'));
+      drawQuickSettings(card);
     } else if (id === 'business') {
       card.appendChild(table);
       row('Business name', info.name);

@@ -32,6 +32,148 @@
     '00000000-0000-4000-8000-000000000003': 'Cashier'
   };
 
+  // ---- bytes, for quick sign in (WebAuthn hands everything over as bytes) ---------------------------------------------------
+  function bytesToB64url(bytes) {
+    var text = '';
+    for (var i = 0; i < bytes.length; i++) {
+      text += String.fromCharCode(bytes[i]);
+    }
+    return btoaSafe(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function b64urlToBytes(text) {
+    var b64 = String(text).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) {
+      b64 += '=';
+    }
+    var raw = atobSafe(b64);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) {
+      out[i] = raw.charCodeAt(i);
+    }
+    return out;
+  }
+
+  // base64 by hand: the same everywhere (old Safari, the tests), with nothing to look up
+  var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  function btoaSafe(binary) {
+    var out = '';
+    for (var i = 0; i < binary.length; i += 3) {
+      var a = binary.charCodeAt(i);
+      var b = i + 1 < binary.length ? binary.charCodeAt(i + 1) : -1;
+      var c = i + 2 < binary.length ? binary.charCodeAt(i + 2) : -1;
+      out += B64.charAt(a >> 2) + B64.charAt(((a & 3) << 4) | (b < 0 ? 0 : b >> 4));
+      out += b < 0 ? '=' : B64.charAt(((b & 15) << 2) | (c < 0 ? 0 : c >> 6));
+      out += c < 0 ? '=' : B64.charAt(c & 63);
+    }
+    return out;
+  }
+  function atobSafe(b64) {
+    var clean = String(b64).replace(/=+$/, '');
+    var out = '';
+    var bits = 0;
+    var value = 0;
+    for (var i = 0; i < clean.length; i++) {
+      var index = B64.indexOf(clean.charAt(i));
+      if (index < 0) { continue; }
+      value = (value << 6) | index;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out += String.fromCharCode((value >> bits) & 255);
+      }
+    }
+    return out;
+  }
+
+  /** A site name (always plain ASCII) as bytes. */
+  function asciiBytes(text) {
+    var out = new Uint8Array(text.length);
+    for (var i = 0; i < text.length; i++) {
+      out[i] = text.charCodeAt(i) & 0x7f;
+    }
+    return out;
+  }
+
+  /** UTF-8 bytes to text (the browser's client data is UTF-8 JSON). Null when they are not valid UTF-8. */
+  function utf8Text(bytes) {
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i];
+      var code;
+      var extra;
+      if (b < 0x80) { code = b; extra = 0; }
+      else if ((b & 0xe0) === 0xc0) { code = b & 0x1f; extra = 1; }
+      else if ((b & 0xf0) === 0xe0) { code = b & 0x0f; extra = 2; }
+      else if ((b & 0xf8) === 0xf0) { code = b & 0x07; extra = 3; }
+      else { return null; }
+      for (var k = 0; k < extra; k++) {
+        i += 1;
+        if (i >= bytes.length || (bytes[i] & 0xc0) !== 0x80) { return null; }
+        code = (code << 6) | (bytes[i] & 0x3f);
+      }
+      if (code > 0xffff) {
+        code -= 0x10000;
+        out += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
+      } else {
+        out += String.fromCharCode(code);
+      }
+    }
+    return out;
+  }
+
+  function concatBytes(a, b) {
+    var out = new Uint8Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+
+  function sameBytes(a, b) {
+    if (!a || !b || a.length !== b.length) {
+      return false;
+    }
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff === 0;
+  }
+
+  /**
+   * An ECDSA P-256 signature as a device sends it (ASN.1 DER: a sequence of two integers) as the browser's check wants it:
+   * r and s, 32 bytes each, side by side. Null when it is not a well-formed signature.
+   */
+  function derToRawSignature(der) {
+    var at = 0;
+    function length() {
+      if (at >= der.length) { return -1; }
+      var first = der[at++];
+      if (first < 0x80) { return first; }
+      if (first === 0x81 && at < der.length) { return der[at++]; }
+      return -1;
+    }
+    function integer() {
+      if (der[at++] !== 0x02) { return null; }
+      var size = length();
+      if (size < 1 || at + size > der.length) { return null; }
+      var value = der.subarray(at, at + size);
+      at += size;
+      while (value.length > 32 && value[0] === 0) { value = value.subarray(1); }
+      if (value.length > 32) { return null; }
+      var out = new Uint8Array(32);
+      out.set(value, 32 - value.length);
+      return out;
+    }
+    if (!der || der.length < 8 || der[at++] !== 0x30) { return null; }
+    var total = length();
+    if (total < 0 || at + total !== der.length) { return null; }
+    var r = integer();
+    var s = r ? integer() : null;
+    if (!r || !s || at !== der.length) { return null; }
+    return concatBytes(r, s);
+  }
+
   /** Everything a result callback needs to tell the person what went wrong, in plain words. */
   function problem(code, message) {
     var error = new Error(message);
@@ -343,6 +485,222 @@
 
     function logout() {
       session = null;
+    }
+
+    // ---- quick sign in: Face ID, Touch ID, a fingerprint or the device's passcode ------------------------------------------
+    // One person per device. Turning it on creates a passkey that lives in the device's secure hardware and can only be used
+    // after their face, finger or passcode; signing in asks for it and checks the answer against the public key kept here
+    // (nothing secret is kept). It is a quicker door to an account already on this device, never a replacement for the
+    // password anywhere else. options.passkeys is the browser's WebAuthn and WebCrypto, made into callbacks by the page.
+    var QUICK_TIMEOUT_MS = 60000;
+    var quickBusy = false;
+
+    function passkeysSupported() {
+      try {
+        return !!(options.passkeys && options.passkeys.supported());
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function catalogUser(id) {
+      var users = state.catalog ? state.catalog.users : [];
+      for (var i = 0; i < users.length; i++) {
+        if (users[i].id === id) {
+          return users[i];
+        }
+      }
+      return null;
+    }
+
+    /** {supported, setUpFor: {id, name} | null, mine: whether it is set up for whoever is logged in}. */
+    function quickSignInStatus() {
+      var quick = state.quick || null;
+      var who = quick ? catalogUser(quick.userId) : null;
+      return {
+        supported: passkeysSupported(),
+        setUpFor: quick ? { id: quick.userId, name: who ? who.name : 'someone no longer in the shop' } : null,
+        mine: !!(quick && session && quick.userId === session.id)
+      };
+    }
+
+    function cancelledByPerson(error) {
+      var name = error && error.name ? String(error.name) : String(error || '');
+      return name.indexOf('NotAllowedError') >= 0 || name.indexOf('AbortError') >= 0;
+    }
+
+    /** Turns quick sign in on for whoever is logged in (the device asks for their face, finger or passcode once). cb(error). */
+    function setUpQuickSignIn(cb) {
+      if (!session) {
+        cb(problem('input', 'Log in first.'));
+        return;
+      }
+      if (!passkeysSupported()) {
+        cb(problem('unsupported', 'This device\'s browser cannot do Face ID, fingerprint or passcode sign in.'));
+        return;
+      }
+      if (quickBusy) {
+        cb(problem('busy', 'Wait a moment.'));
+        return;
+      }
+      var pk = options.passkeys;
+      var who = session;
+      quickBusy = true;
+      pk.create({
+        challenge: pk.randomBytes(32),
+        rp: { name: 'NexaPOS Lite', id: pk.rpId },
+        user: { id: pk.randomBytes(16), name: 'nexapos-lite-quick-sign-in', displayName: 'NexaPOS Lite quick sign in' },
+        // ES256 only: what every phone, iPad and recent Windows PC offers.
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+        timeout: QUICK_TIMEOUT_MS,
+        attestation: 'none'
+      }, function (error, made) {
+        quickBusy = false;
+        if (error) {
+          cb(cancelledByPerson(error)
+            ? problem('cancelled', 'Quick sign in was not turned on. If no Face ID, fingerprint or passcode question appeared, check one is turned on in the device\'s settings.')
+            : problem('unsupported', 'This device could not set up quick sign in. Use your password instead.'));
+          return;
+        }
+        if (!made || !made.rawId || !made.publicKey || made.algorithm !== -7) {
+          cb(problem('unsupported', 'This browser cannot set up quick sign in (an iPhone or iPad needs iOS 16 or newer). Use your password instead.'));
+          return;
+        }
+        if (session !== who) {
+          cb(problem('logged_out', 'You were logged out. Log in and turn it on again.'));
+          return;
+        }
+        state.quick = { userId: who.id, credentialId: bytesToB64url(made.rawId), publicKey: bytesToB64url(made.publicKey), rpId: pk.rpId };
+        save();
+        cb(null);
+      });
+    }
+
+    /** Turns it off: only the person it is set up for, or an administrator. */
+    function turnOffQuickSignIn() {
+      if (!state.quick) {
+        return { ok: true };
+      }
+      if (!session || (session.id !== state.quick.userId && session.roleName !== 'Admin')) {
+        return { ok: false, message: 'Only the person it is set up for, or an administrator, can turn it off.' };
+      }
+      state.quick = null;
+      save();
+      return { ok: true };
+    }
+
+    /**
+     * Checks the device's answer completely: the passkey set up here, for this site and page, to the question just asked,
+     * unlocked by the person (user verified), and signed by the key kept at set-up. cb(true) or cb(false, why).
+     */
+    function checkAssertion(quick, challenge, answer, cb) {
+      var pk = options.passkeys;
+      if (!answer || !answer.authenticatorData || !answer.clientDataJSON || !answer.signature || !sameBytes(answer.rawId, b64urlToBytes(quick.credentialId))) {
+        cb(false, 'another passkey');
+        return;
+      }
+      var text = utf8Text(answer.clientDataJSON);
+      var client = null;
+      try {
+        client = text === null ? null : JSON.parse(text);
+      } catch (e) {
+        client = null;
+      }
+      if (!client || client.type !== 'webauthn.get' || client.challenge !== bytesToB64url(challenge) || client.origin !== pk.origin) {
+        cb(false, 'client data');
+        return;
+      }
+      var data = answer.authenticatorData;
+      // flags: 0x01 the person was present, 0x04 the person was verified (face, finger or passcode)
+      if (data.length < 37 || (data[32] & 0x01) === 0 || (data[32] & 0x04) === 0) {
+        cb(false, 'flags');
+        return;
+      }
+      var raw = derToRawSignature(answer.signature);
+      if (!raw) {
+        cb(false, 'signature form');
+        return;
+      }
+      pk.sha256(asciiBytes(quick.rpId), function (error, rpHash) {
+        if (error || !sameBytes(rpHash, data.subarray(0, 32))) {
+          cb(false, 'site');
+          return;
+        }
+        pk.sha256(answer.clientDataJSON, function (error2, clientHash) {
+          if (error2 || !clientHash) {
+            cb(false, 'hash');
+            return;
+          }
+          pk.verify(b64urlToBytes(quick.publicKey), concatBytes(data, clientHash), raw, function (error3, ok) {
+            cb(!error3 && ok === true, error3 ? 'verify failed' : 'signature');
+          });
+        });
+      });
+    }
+
+    /** Signs in the person quick sign in is set up for, after the device's face, finger or passcode check. cb(error, session). */
+    function quickLogin(cb) {
+      var quick = state.quick;
+      if (!quick) {
+        cb(problem('not_set_up', 'Quick sign in is not set up on this device.'));
+        return;
+      }
+      if (!passkeysSupported()) {
+        cb(problem('unsupported', 'This device\'s browser cannot do Face ID, fingerprint or passcode sign in.'));
+        return;
+      }
+      if (!state.catalog) {
+        cb(problem('input', 'The shop\'s cashiers have not been loaded yet. Connect to the internet and refresh.'));
+        return;
+      }
+      if (quickBusy) {
+        cb(problem('busy', 'Wait a moment.'));
+        return;
+      }
+      var pk = options.passkeys;
+      var challenge = pk.randomBytes(32);
+      quickBusy = true;
+      pk.get({
+        challenge: challenge,
+        rpId: quick.rpId,
+        allowCredentials: [{ type: 'public-key', id: b64urlToBytes(quick.credentialId), transports: ['internal'] }],
+        userVerification: 'required',
+        timeout: QUICK_TIMEOUT_MS
+      }, function (error, answer) {
+        if (error || !answer) {
+          quickBusy = false;
+          cb(problem('cancelled', 'Quick sign in did not finish. Try again, or use your password.'));
+          return;
+        }
+        checkAssertion(quick, challenge, answer, function (ok) {
+          quickBusy = false;
+          if (!ok || state.quick !== quick) {
+            cb(problem('not_verified', 'This device could not prove it is you. Use your password.'));
+            return;
+          }
+          var found = catalogUser(quick.userId);
+          if (!found) {
+            cb(problem('disabled', 'This person is no longer in the shop. Use a username and password.'));
+            return;
+          }
+          if (found.status !== 'active') {
+            cb(problem('disabled', 'This account is not active. Ask the owner.'));
+            return;
+          }
+          state.failedLogins = 0;
+          state.lockedUntil = 0;
+          save();
+          session = {
+            id: found.id,
+            name: found.name,
+            username: found.username,
+            roleId: found.roleId,
+            roleName: ROLE_NAMES[found.roleId] || 'Staff'
+          };
+          cb(null, session);
+        });
+      });
     }
 
     /**
@@ -2549,6 +2907,10 @@
       refresh: refresh,
       login: login,
       logout: logout,
+      quickSignInStatus: quickSignInStatus,
+      setUpQuickSignIn: setUpQuickSignIn,
+      turnOffQuickSignIn: turnOffQuickSignIn,
+      quickLogin: quickLogin,
       restoreSession: restoreSession,
       currentUser: function () { return session; },
       searchProducts: searchProducts,
@@ -2844,5 +3206,5 @@
     return running !== null && latest !== null && running !== latest;
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable, supportTime: supportTime, supportDayLabel: supportDayLabel, supportClock: supportClock, supportStatusLabel: supportStatusLabel, SUPPORT_REACTIONS: SUPPORT_REACTIONS };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable, supportTime: supportTime, supportDayLabel: supportDayLabel, supportClock: supportClock, supportStatusLabel: supportStatusLabel, SUPPORT_REACTIONS: SUPPORT_REACTIONS, bytesToB64url: bytesToB64url, b64urlToBytes: b64urlToBytes, utf8Text: utf8Text, derToRawSignature: derToRawSignature };
 }));
