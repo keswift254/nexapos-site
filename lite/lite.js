@@ -480,7 +480,7 @@
     el('hold-button').disabled = ui.cart.length === 0 || ui.starting;
     if (blocked) { say('sell-message', 'bad', blocked); }
     else if (!t.discountOk) { say('sell-message', 'warn', 'The discount must be a number, like 50 or 50.50.'); }
-    if (ui.payment === 'till' && tillList && tillList.payments) { drawTillList(); } // which payment fits the total changes with the cart
+    if (ui.payment === 'till' && tillList && tillList.payments) { drawTillList(); autoTill(); } // which payment fits changes with the cart
   }
 
   el('discount').oninput = renderCart;
@@ -519,6 +519,7 @@
     el('cash-received').value = '';
     el('paystack-phone').value = '';
     el('till-code').value = '';
+    if (tillList) { tillList.showOthers = false; }
     say('sell-message', '', '');
     say('pick-message', '', '');
     setSaleType('retail');
@@ -727,9 +728,11 @@
     });
   };
   // ---- M-Pesa Till/Paybill: the customer paid the shop's own till or paybill -------------------------------------------------
-  // The payments the shop phone passed on are listed (newest first, the ones no sale has used yet); a tap puts the code in the
-  // box. Complete Sale asks the shop to use that code on this sale, and only then is the sale saved.
-  var tillList = { timer: null, payments: null, phones: null, token: 0 };
+  // Only the payments of exactly the sale total are shown (newest first, the ones no sale has used yet). The only one of that
+  // amount, if it is new, completes the sale by itself; two or more are for the cashier to choose from (a tap puts the code
+  // in the box, then Complete Sale), and the rest stay suggested for the next sales until used or archived. Payments of
+  // other amounts are shown only when asked for. The shop is asked to use the code on this sale, and only then is it saved.
+  var tillList = { timer: null, payments: null, phones: null, token: 0, showOthers: false, tried: {} };
   var TILL_LIST_REFRESH_MS = 8000;
 
   function stopTillList() {
@@ -763,7 +766,25 @@
       tillList.phones = phones;
       say('till-pay-message', phones === 0 ? 'warn' : '', phones === 0 ? 'No shop phone passes M-Pesa messages on yet, so payments cannot be checked. An administrator sets one up in Settings > M-Pesa Till Phone.' : '');
       drawTillList();
+      autoTill();
     });
+  }
+
+  /**
+   * Completes the sale by itself with the one new payment of exactly its total (core.tillMatches). Not while a sale is being
+   * completed, when the cashier picked or typed a code, or with a payment already tried here (a refusal is shown once, not
+   * repeated every few seconds).
+   */
+  function autoTill() {
+    if (ui.payment !== 'till' || ui.tab !== 'sell' || ui.starting || ui.cart.length === 0 || !tillList.payments) { return; }
+    if (el('till-code').value.replace(/\s+/g, '') !== '' || core.sellBlockedReason()) { return; }
+    var t = totals();
+    if (!t.discountOk || t.total <= 0) { return; }
+    var fit = core.tillMatches(tillList.payments, t.total, Date.now());
+    if (!fit.auto || tillList.tried[fit.auto.code]) { return; }
+    tillList.tried[fit.auto.code] = true;
+    el('till-code').value = fit.auto.code;
+    completeTillSale(t, buildCart(t), false);
   }
 
   /**
@@ -851,10 +872,22 @@
     var list = el('till-pay-list');
     list.innerHTML = '';
     if (tillList.payments === null) { list.appendChild(make('p', 'muted', 'Loading the payments...')); return; }
-    if (tillList.payments.length === 0) { list.appendChild(make('p', 'muted', 'No new payment yet. It shows here a few seconds after the M-Pesa message reaches the shop phone.')); return; }
-    var total = totals().total;
+    var total = ui.cart.length > 0 ? totals().total : 0;
     var picked = core.mpesaCode(el('till-code').value);
-    for (var i = 0; i < tillList.payments.length; i++) {
+    var fit = core.tillMatches(tillList.payments, total, Date.now());
+    if (total <= 0) {
+      list.appendChild(make('p', 'muted', 'Add items to the sale: the payment of its total shows here.'));
+    } else if (fit.matches.length === 0) {
+      list.appendChild(make('p', 'muted', 'Waiting for a payment of ' + money(total) + '. It shows here a few seconds after the M-Pesa message reaches the shop phone.'));
+    } else if (fit.matches.length > 1) {
+      list.appendChild(make('div', 'notice warn', fit.matches.length + ' payments of ' + money(total) + ' have arrived. Tap the one this customer made, then Complete Sale. The others stay here for the next sales.'));
+    } else if (!fit.auto) {
+      list.appendChild(make('p', 'muted', 'This payment of ' + money(total) + ' arrived more than ' + core.TILL_AUTO_MINUTES + ' minutes ago, so it may be an earlier customer\'s. If it is this customer\'s, tap it, then Complete Sale.'));
+    }
+    var shown = fit.matches.slice();
+    if (fit.others.length > 0 && tillList.showOthers) { shown = shown.concat(fit.others); }
+    for (var i = 0; i < shown.length; i++) {
+      if (i === fit.matches.length) { list.appendChild(make('p', 'muted', 'Payments of other amounts:')); }
       (function (p) {
         var row = make('button', 'ticket' + (p.code === picked ? ' on' : ''));
         row.type = 'button';
@@ -876,9 +909,16 @@
             '\n\nIt will no longer be suggested at checkout. You can still see it in Settings > M-Pesa Till Phone.');
         }, function (slideBack) { archiveFromCheckout(p, slideBack); });
         list.appendChild(wrap);
-      }(tillList.payments[i]));
+      }(shown[i]));
     }
-    list.appendChild(make('p', 'muted', 'Swipe a payment to the left to archive it: it is no longer suggested here.'));
+    if (fit.others.length > 0) {
+      var more = make('button', 'secondary small', tillList.showOthers ? 'Hide the payments of other amounts' : 'Customer paid a different amount? Show the other payments (' + fit.others.length + ')');
+      more.type = 'button';
+      more.id = 'till-pay-others';
+      more.onclick = function () { tillList.showOthers = !tillList.showOthers; drawTillList(); };
+      list.appendChild(more);
+    }
+    if (shown.length > 0) { list.appendChild(make('p', 'muted', 'Swipe a payment to the left to archive it: it is no longer suggested here.')); }
   }
   el('till-code').oninput = function () { drawTillList(); };
   el('till-pay-refresh').onclick = function () { setBusy('till-pay-refresh', true, 'Refreshing...'); loadTillList(); };
@@ -3289,6 +3329,9 @@
         a.appendChild(make('b', '', phone.label));
         a.appendChild(make('div', 'sku', 'Added' + (phone.addedBy ? ' by ' + phone.addedBy : '') + (phone.addedAt ? ' on ' + timeText(phone.addedAt) : '')));
         a.appendChild(make('div', 'sku', phone.lastMessageAt ? 'Last message: ' + timeText(phone.lastMessageAt) : 'No message from this phone yet'));
+        a.appendChild(make('div', 'sku ' + (phone.senderCheck ? 'fits' : 'warntext'), phone.senderCheck
+          ? 'Sender check on: a message typed by a person and sent from their own number is never taken as a payment.'
+          : 'Sender check off: add the "sender" field to this phone\'s Shortcut (set-up page, step 2), so a message a person types and sends from their own number is never taken as a payment.'));
         var r = make('div', 'r');
         var remove = make('button', 'secondary small', 'Remove');
         remove.type = 'button';

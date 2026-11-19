@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-19.1">
+  <meta name="lite-build" content="2026-11-19.2">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -130,6 +130,8 @@
     .ticket.on { background: #DEE0FF; background: var(--primary-container); box-shadow: 0 0 0 2px #515B92; box-shadow: 0 0 0 2px var(--primary); }
     .ticket .amt { float: right; font-weight: 700; font-size: 16px; padding-left: 10px; }
     .ticket .fits { color: #1B6B2F; font-weight: 600; }
+    .sku.fits { color: #1B6B2F; }
+    .sku.warntext { color: #7A5300; }
     .swipewrap { position: relative; margin: 8px 0 0; border-radius: 12px; overflow: hidden; }
     .swipewrap.swiping { background: #BA1A1A; }
     .swipewrap .ticket { position: relative; margin: 0; }
@@ -429,7 +431,7 @@
                 <button id="show-qr-button" class="secondary" type="button" style="margin-top:0">Show a code instead (the customer scans it)</button>
               </div>
               <div id="pay-till-box" class="hidden">
-                <p class="muted">The customer pays your M-Pesa till or paybill from their phone. Their payment shows below a few seconds after the M-Pesa message reaches your shop phone: tap it, then Complete Sale. Needs the internet.</p>
+                <p class="muted">The customer pays your M-Pesa till or paybill from their phone. When their payment of the sale total reaches your shop phone, the sale completes by itself. If two or more payments of that amount have arrived, tap the customer's one, then Complete Sale. Needs the internet.</p>
                 <div id="till-pay-message"></div>
                 <div id="till-pay-list"></div>
                 <button id="till-pay-refresh" class="secondary small" type="button" style="margin-top:8px">Refresh</button>
@@ -645,7 +647,7 @@
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=5"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=20"></script>
-  <script src="lite.js?v=24"></script>
+  <script src="lite-core.js?v=21"></script>
+  <script src="lite.js?v=25"></script>
 </body>
 </html>

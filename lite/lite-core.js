@@ -1392,7 +1392,9 @@
         label: typeof raw.label === 'string' ? raw.label : '',
         addedBy: typeof raw.added_by === 'string' ? raw.added_by : '',
         addedAt: supportTime(raw.added_at),
-        lastMessageAt: supportTime(raw.last_message_at)
+        lastMessageAt: supportTime(raw.last_message_at),
+        // true once the phone's Shortcut passes on who each SMS came from (messages a person typed are then refused)
+        senderCheck: raw.sender_check === true
       };
     }
 
@@ -2937,6 +2939,8 @@
       tillPayments: tillPayments,
       sellTill: sellTill,
       unusedTillPayments: unusedTillPayments,
+      tillMatches: tillMatches,
+      TILL_AUTO_MINUTES: TILL_AUTO_MINUTES,
       archiveTillPayment: archiveTillPayment,
       mpesaCode: mpesaCode,
       refundBlock: refundBlock,
@@ -2986,6 +2990,37 @@
   var MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   /** The server's "2026-10-06 13:00:21" is UTC: the moment it means, in milliseconds (null when there is none). */
+  /** A payment newer than this (minutes) may complete a sale by itself; an older one is only suggested. */
+  var TILL_AUTO_MINUTES = 10;
+
+  /**
+   * Which of the unused payments [payments] (newest first) fit a sale of [totalCents]:
+   *   matches - the ones of exactly that amount, newest first (shown at checkout);
+   *   others  - every other one (another amount, or an amount that could not be read; shown only when asked for);
+   *   auto    - the payment the sale completes with by itself, or null: the ONLY one of that amount, and new (it reached
+   *             the shop less than TILL_AUTO_MINUTES ago). Two or more of the same amount are for the cashier to choose
+   *             from; an older lone one may be an earlier customer's, so it is only suggested.
+   * [nowMs]: the time now. A payment that looks newer than now (this device's clock is slow) counts as new.
+   */
+  function tillMatches(payments, totalCents, nowMs) {
+    var matches = [];
+    var others = [];
+    var list = payments || [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (totalCents > 0 && p.amountCents !== null && p.amountCents === totalCents) {
+        matches.push(p);
+      } else {
+        others.push(p);
+      }
+    }
+    var auto = null;
+    if (matches.length === 1 && matches[0].receivedAt !== null && nowMs - matches[0].receivedAt < TILL_AUTO_MINUTES * 60000) {
+      auto = matches[0];
+    }
+    return { matches: matches, others: others, auto: auto };
+  }
+
   function supportTime(text) {
     var raw = String(text || '').replace(/^\s+|\s+$/g, '');
     if (!raw) {

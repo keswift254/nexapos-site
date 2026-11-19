@@ -80,6 +80,7 @@
           <li>Tap <b>GET</b> next to Method and choose <b>POST</b> (picture C, <span class="num">3</span>). <b>Request Body</b> must say <b>JSON</b> (<span class="num">4</span>).</li>
           <li>Tap <b>Add new field</b> and choose <b>Text</b>. In its left box type <code>key</code> - tap &#8679; first so the k stays small. In its right box paste the <b>key</b> from step 1 (use Copy key first) (<span class="num">5</span>).</li>
           <li>Tap <b>Add new field</b> again and choose <b>Text</b>. In its left box type <code>text</code> (small t). Tap its right box but do not type: tap <b>Message</b> above the keyboard, so a blue <b>Message</b> bubble appears (<span class="num">6</span>).</li>
+          <li>Tap <b>Add new field</b> a third time and choose <b>Text</b>. In its left box type <code>sender</code> (small s). Tap its right box, tap <b>Message</b> above the keyboard so a blue bubble appears, then tap that blue bubble and choose <b>Sender</b>. Now the shop knows who each SMS came from, and refuses a message that a person typed and sent from their own number.</li>
           <li>Check that <b>Automation</b> is on (<span class="num">1</span>) and <b>Confirm Before Run</b> is off (<span class="num">2</span>), so the shortcut runs by itself.</li>
           <li>Tap the back arrow at the top to save.</li>
         </ol>
@@ -87,8 +88,9 @@
           <img src="phone-guide/step-c-finished.jpg?v=1" alt="Picture C: the finished shortcut, with the key hidden" width="580" height="860">
           <figcaption>Picture C: how it looks when it is done (the key is hidden here)</figcaption>
         </figure>
-        <div class="notice warn">The two names must be exactly <code>key</code> and <code>text</code>, and the key must be in the first row and the blue <b>Message</b> bubble in the second.</div>
-        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Confirmed and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step (steps 4 to 9).</p>
+        <div class="notice warn">The three names must be exactly <code>key</code>, <code>text</code> and <code>sender</code>: the key in the first row, the blue <b>Message</b> bubble in the second and the blue <b>Sender</b> bubble in the third. (Picture C was taken before the third row was added.)</div>
+        <p class="muted">Already set up a phone before? Open its shortcut and add only the <code>sender</code> row (step 10). On the till, <b>Settings &gt; M-Pesa Till Phone</b> shows <b>Sender check on</b> for that phone after its next M-Pesa message.</p>
+        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Confirmed and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step (steps 4 to 10).</p>
         <p class="muted">If a step looks different on your phone, send a screenshot to NexaPOS support.</p>
       </div>
 

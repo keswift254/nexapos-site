@@ -132,9 +132,13 @@ test('a cashier or a manager is refused on this iPad: nothing is even sent to th
 // ---- the phones --------------------------------------------------------------------------------------------------------------------
 test('the phones are asked for with the device key and read into plain rows (times are the shop\'s UTC instants)', function (done) {
   till('cashier', function () {
+    var checked = phoneRow(3, "Mama's iPhone", '2026-11-17T09:30:15Z');
+    checked.sender_check = true;
+    var notTrue = phoneRow(4, 'Spare');
+    notTrue.sender_check = 'yes';
     return { status: 200, body: { success: true, max_phones: 5, phones: [
-      phoneRow(3, "Mama's iPhone", '2026-11-17T09:30:15Z'),
-      phoneRow(4, 'Spare'),
+      checked,
+      notTrue,
       { id: '5', label: 'an id as text is not trusted' },
       { id: 0, label: 'no id' },
       null,
@@ -148,10 +152,10 @@ test('the phones are asked for with the device key and read into plain rows (tim
       assert.strictEqual(t.sent[0].auth, 'Bearer key-1');
       assert.strictEqual(t.sent[0].body, null);
       assert.deepStrictEqual(result, { max: 5, phones: [
-        { id: 3, label: "Mama's iPhone", addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: Date.parse('2026-11-17T09:30:15Z') },
-        { id: 4, label: 'Spare', addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: null },
-        { id: 6, label: '', addedBy: '', addedAt: null, lastMessageAt: null }
-      ] }, 'anyone logged in may look; rows without a real id are left out');
+        { id: 3, label: "Mama's iPhone", addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: Date.parse('2026-11-17T09:30:15Z'), senderCheck: true },
+        { id: 4, label: 'Spare', addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: null, senderCheck: false },
+        { id: 6, label: '', addedBy: '', addedAt: null, lastMessageAt: null, senderCheck: false }
+      ] }, 'anyone logged in may look; rows without a real id are left out; the sender check is on only when the shop says true');
       done();
     });
   });
@@ -220,7 +224,7 @@ test('setting a phone up sends the name, WHO is asking and their password to the
       assert.deepStrictEqual(t.sent[0].body, { label: "Mama's iPhone", user_id: ADMIN, password: 'the-password' });
       assert.deepStrictEqual(result, {
         ok: true, key: KEY, address: BASE + '?action=payment_inbox_ingest',
-        phone: { id: 9, label: "Mama's iPhone", addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: null }
+        phone: { id: 9, label: "Mama's iPhone", addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: null, senderCheck: false }
       });
       assert.strictEqual(t.core.tillPhoneAddress(), BASE + '?action=payment_inbox_ingest');
       done();
@@ -393,7 +397,7 @@ test('removing a phone sends which phone, who is asking and their password, and 
       assert.ok(/\?action=payment_inbox_remove_source$/.test(t.sent[0].url), t.sent[0].url);
       assert.strictEqual(t.sent[0].auth, 'Bearer key-1');
       assert.deepStrictEqual(t.sent[0].body, { phone_id: 3, user_id: ADMIN, password: 'the-password' });
-      assert.deepStrictEqual(result, { ok: true, phones: [{ id: 4, label: 'Spare', addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: null }] });
+      assert.deepStrictEqual(result, { ok: true, phones: [{ id: 4, label: 'Spare', addedBy: 'owner', addedAt: Date.parse('2026-11-17T06:00:00Z'), lastMessageAt: null, senderCheck: false }] });
       done();
     });
   });
@@ -516,6 +520,41 @@ test('payments: a shop server that is not updated, no internet and an unreadable
       });
     });
   }());
+});
+
+// ---- which payments fit a sale (checkout shows only those; the one new one completes the sale by itself) --------------
+test('only payments of exactly the sale total fit; the ONLY new one completes the sale; two or more are for the cashier', function (done) {
+  till('cashier', function () { return { status: 200, body: {} }; }, function (t) {
+    var now = Date.parse('2026-11-20T10:00:00Z');
+    var minute = 60000;
+    function pay(code, cents, minutesAgo) { return { code: code, amountCents: cents, receivedAt: minutesAgo === null ? null : now - minutesAgo * minute }; }
+    var fit = t.core.tillMatches;
+    assert.strictEqual(t.core.TILL_AUTO_MINUTES, 10);
+
+    var one = fit([pay('A1', 6000, 1), pay('B1', 5000, 0), pay('C1', null, 0)], 6000, now);
+    assert.deepStrictEqual(one.matches.map(function (p) { return p.code; }), ['A1'], 'only the sale total');
+    assert.deepStrictEqual(one.others.map(function (p) { return p.code; }), ['B1', 'C1'], 'other amounts and unread amounts are the others, in order');
+    assert.strictEqual(one.auto && one.auto.code, 'A1', 'the only new payment of the total completes the sale');
+
+    var two = fit([pay('A2', 6000, 0), pay('B2', 6000, 3), pay('C2', 7000, 0)], 6000, now);
+    assert.deepStrictEqual(two.matches.map(function (p) { return p.code; }), ['A2', 'B2'], 'newest first, as the shop sent them');
+    assert.strictEqual(two.auto, null, 'two of the same amount: the cashier chooses');
+
+    var oldOne = fit([pay('A3', 6000, 10)], 6000, now);
+    assert.strictEqual(oldOne.matches.length, 1);
+    assert.strictEqual(oldOne.auto, null, 'a lone payment 10 minutes old may be an earlier customer\'s: only suggested');
+    assert.strictEqual(fit([pay('A4', 6000, 9.99)], 6000, now).auto.code, 'A4', 'just under 10 minutes still counts as new');
+    assert.strictEqual(fit([pay('A5', 6000, -3)], 6000, now).auto.code, 'A5', 'a slow clock on this device: a payment from "the future" is new');
+    assert.strictEqual(fit([pay('A6', 6000, null)], 6000, now).auto, null, 'no arrival time: never by itself');
+    assert.strictEqual(fit([pay('A7', 6000, 0), pay('B7', 6000, 60)], 6000, now).auto, null, 'an older one of the same amount still makes two');
+
+    var empty = fit([pay('A8', 6000, 0)], 0, now);
+    assert.deepStrictEqual([empty.matches.length, empty.others.length, empty.auto], [0, 1, null], 'an empty sale fits nothing');
+    var none = fit([], 6000, now);
+    assert.deepStrictEqual([none.matches.length, none.others.length, none.auto], [0, 0, null]);
+    assert.deepStrictEqual(fit(null, 6000, now), { matches: [], others: [], auto: null }, 'no list yet');
+    done();
+  });
 });
 
 var failed = 0;
