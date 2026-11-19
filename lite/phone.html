@@ -61,7 +61,7 @@
         <ol>
           <li>Open the <b>Shortcuts</b> app and tap <b>+</b> to make a new shortcut.</li>
           <li>Tap <b>Edit</b>, then <b>Automation</b>, and choose <b>Message</b>. A block "When I receive a message" appears.</li>
-          <li>In that block, set <b>Message contains</b> to <code>Confirmed</code> (picture A, <span class="num">1</span>).</li>
+          <li>In that block, set <b>Message contains</b> to <code>Ksh</code> (picture A, <span class="num">1</span> - the picture still shows the older word Confirmed). Every M-Pesa, M-PESA Jumbe and bank payment message has Ksh in it; any other message the phone passes on is dropped by the shop and nothing of it is kept.</li>
           <li>Tap <b>Search</b> at the bottom (picture A, <span class="num">2</span>), type <code>Get Contents of URL</code> and tap it to add it.</li>
           <li>Tap its <b>URL</b> and paste the <b>address</b> from step 1 (use Copy address first).</li>
         </ol>
@@ -89,8 +89,8 @@
           <figcaption>Picture C: how it looks when it is done (the key is hidden here)</figcaption>
         </figure>
         <div class="notice warn">The three names must be exactly <code>key</code>, <code>text</code> and <code>sender</code>: the key in the first row, the blue <b>Message</b> bubble in the second and the blue <b>Sender</b> bubble in the third. (Picture C was taken before the third row was added.)</div>
-        <p class="muted">Already set up a phone before? Open its shortcut and add only the <code>sender</code> row (step 10). On the till, <b>Settings &gt; M-Pesa Till Phone</b> shows <b>Sender check on</b> for that phone after its next M-Pesa message.</p>
-        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Confirmed and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step (steps 4 to 10).</p>
+        <p class="muted">Already set up a phone before? Open its shortcut, change <b>Message contains</b> from Confirmed to <code>Ksh</code> (so bank messages such as Co-op Bank's are passed on too), and add the <code>sender</code> row (step 10) if it is not there yet. On the till, <b>Settings &gt; M-Pesa Till Phone</b> shows <b>Sender check on</b> for that phone after its next M-Pesa message.</p>
+        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Ksh and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step (steps 4 to 10).</p>
         <p class="muted">If a step looks different on your phone, send a screenshot to NexaPOS support.</p>
       </div>
 
