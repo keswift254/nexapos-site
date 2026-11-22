@@ -138,7 +138,7 @@ test('every refund of every scenario is replayed (none is skipped by accident)',
       }
     });
   });
-  assert.strictEqual(replayed, 9);
+  assert.strictEqual(replayed, 11);
 });
 
 // ---- the quote ------------------------------------------------------------------------------------------------------
@@ -175,7 +175,7 @@ test('the quote: a sale that was not split has no cash share, whatever the payme
   assert.strictEqual(Sale.quoteRefund(sourceBefore(mpesa, 2), [{ itemId: sourceBefore(mpesa, 2).items[0].id, quantity: 1 }]).cashCents, null);
 });
 
-test('a cash sale (even one with cash received recorded) has no cash share: only an M-Pesa prompt sale can be split', function () {
+test('a cash sale (even one with cash received recorded) has no cash share: only an M-Pesa prompt or till sale can be split', function () {
   var source = sourceBefore(scenarios.refund_whole_cash_sale, 2);
   source.sale.cashReceivedCents = 50000;
   var q = Sale.quoteRefund(source, [{ itemId: source.items[0].id, quantity: 1 }]);
@@ -183,8 +183,12 @@ test('a cash sale (even one with cash received recorded) has no cash share: only
   assert.strictEqual(q.cashCents, null);
   var built = Sale.buildRefund({ source: source, choices: [{ itemId: source.items[0].id, quantity: 1 }], reason: 'x', products: productsOf(scenarios.refund_whole_cash_sale), userId: 'u', deviceId: DEVICE_ID, now: function () { return NOW; }, nextRev: 1, randomHex: randomHex });
   assert.strictEqual(built.changes[0].payload.cashReceivedCents, null);
+  source.sale.paymentMethod = 'mpesa';
+  assert.strictEqual(Sale.quoteRefund(source, [{ itemId: source.items[0].id, quantity: 1 }]).cashCents, null, 'an M-Pesa sale of another kind is never split');
   source.sale.paymentMethod = 'mpesa_manual';
-  assert.strictEqual(Sale.quoteRefund(source, [{ itemId: source.items[0].id, quantity: 1 }]).cashCents, null);
+  assert.notStrictEqual(Sale.quoteRefund(source, [{ itemId: source.items[0].id, quantity: 1 }]).cashCents, null, 'a till sale with a cash part is split (Sale.isSplitPayment in the app)');
+  source.sale.cashReceivedCents = null;
+  assert.strictEqual(Sale.quoteRefund(source, [{ itemId: source.items[0].id, quantity: 1 }]).cashCents, null, 'a till sale without a cash part is not');
 });
 
 test('the quote refuses what the app refuses, in the same words', function () {
@@ -491,4 +495,4 @@ tests.forEach(function (t) {
   try { t.fn(); } catch (error) { failed++; console.error('FAIL ' + t.name + '\n  ' + (error && error.stack ? error.stack.split('\n').slice(0, 6).join('\n  ') : error)); }
 });
 if (failed) { console.error(failed + ' of ' + tests.length + ' tests FAILED'); process.exit(1); }
-console.log('Lite refund builder tests passed: ' + tests.length + ' tests (9 refunds in 5 scenarios match the real app field for field).');
+console.log('Lite refund builder tests passed: ' + tests.length + ' tests (11 refunds in 6 scenarios match the real app field for field).');

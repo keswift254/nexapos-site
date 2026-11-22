@@ -596,7 +596,9 @@
     }
 
     var cash = null;
-    if (sale.paymentMethod === 'paystack' && sale.cashReceivedCents !== null && sale.cashReceivedCents !== undefined) {
+    // a split sale: part in cash, the rest by M-Pesa - a prompt ('paystack') or the shop's own till ('mpesa_manual'); the app's
+    // Sale.isSplitPayment
+    if ((sale.paymentMethod === 'paystack' || sale.paymentMethod === 'mpesa_manual') && sale.cashReceivedCents !== null && sale.cashReceivedCents !== undefined) {
       var cashTarget = roundedShare(sale.cashReceivedCents, before.totalCents + total, sale.totalCents);
       if (cashTarget === null) {
         return fail(TOO_BIG);
