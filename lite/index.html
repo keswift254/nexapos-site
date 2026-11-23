@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-22.1">
+  <meta name="lite-build" content="2026-11-23.1">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -314,11 +314,11 @@
         <div id="home-support"></div>
         <div id="home-message"></div>
         <div class="statgrid">
-          <div class="stat"><div class="card">
+          <div class="stat hidden" id="stat-sales-card"><div class="card">
             <div class="statlabel"><span>Sales Today</span><button class="eye" id="eye-sales" type="button" aria-label="Hide or show the figures"></button></div>
             <div class="statvalue" id="stat-sales">...</div><div class="statsub" id="stat-sales-sub"></div><div id="stat-sales-pct"></div>
           </div></div>
-          <div class="stat"><div class="card">
+          <div class="stat hidden" id="stat-profit-card"><div class="card">
             <div class="statlabel"><span>Net Profit Today</span><button class="eye" id="eye-profit" type="button" aria-label="Hide or show the figures"></button></div>
             <div class="statvalue" id="stat-profit">...</div><div class="statsub" id="stat-profit-sub"></div><div id="stat-profit-pct"></div>
           </div></div>
@@ -326,12 +326,12 @@
             <div class="statlabel"><span>Low Stock</span></div>
             <div class="statvalue" id="stat-low">...</div><div class="statsub" id="stat-low-sub"></div>
           </div></div>
-          <div class="stat"><div class="card">
+          <div class="stat hidden" id="stat-stock-card"><div class="card">
             <div class="statlabel"><span>Stock Value</span><button class="eye" id="eye-stock" type="button" aria-label="Hide or show the figures"></button></div>
             <div class="statvalue" id="stat-stock">...</div><div class="statsub">at cost price</div>
           </div></div>
         </div>
-        <div class="card">
+        <div class="card hidden" id="home-trend-card">
           <h2>Last 7 Days</h2>
           <div class="legend"><span><i style="background:#515B92"></i>Sales</span><span><i style="background:#F44336"></i>Expenses</span><span><i style="background:#4CAF50"></i>Net Profit</span></div>
           <div id="trend-chart"></div>
@@ -647,7 +647,7 @@
   <script src="qrcode.js?v=1"></script>
   <script src="lite-sale.js?v=6"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=21"></script>
-  <script src="lite.js?v=25"></script>
+  <script src="lite-core.js?v=22"></script>
+  <script src="lite.js?v=26"></script>
 </body>
 </html>

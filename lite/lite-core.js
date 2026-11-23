@@ -3167,6 +3167,16 @@
 
   // ---- the dashboard ----------------------------------------------------------------------------------------------
   /**
+   * Whether the person signed in sees the shop's money on the dashboard: Sales Today, Net Profit Today, Stock Value and
+   * the Last 7 Days. Admins and managers do; a cashier does not, and sees only Low Stock (the owner, 2026-11-23: "make
+   * the cashier user not to be able to see daily sales or profits on the dashboard or stock value"). Like the apps, a
+   * list of who may: anyone else (a role this page does not know, nobody signed in) sees nothing.
+   */
+  function canSeeShopFigures(user) {
+    return !!user && (user.roleName === 'Admin' || user.roleName === 'Manager');
+  }
+
+  /**
    * The apps' "change since yesterday" badge (PercentChange.compare): up, down or flat, and by how many percent. When
    * yesterday was exactly zero there is nothing to compare with: today also zero is flat; anything else counts as +100%.
    * Rounding is half away from zero, like the apps.
@@ -3241,5 +3251,5 @@
     return running !== null && latest !== null && running !== latest;
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable, supportTime: supportTime, supportDayLabel: supportDayLabel, supportClock: supportClock, supportStatusLabel: supportStatusLabel, SUPPORT_REACTIONS: SUPPORT_REACTIONS, bytesToB64url: bytesToB64url, b64urlToBytes: b64urlToBytes, utf8Text: utf8Text, derToRawSignature: derToRawSignature };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, canSeeShopFigures: canSeeShopFigures, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable, supportTime: supportTime, supportDayLabel: supportDayLabel, supportClock: supportClock, supportStatusLabel: supportStatusLabel, SUPPORT_REACTIONS: SUPPORT_REACTIONS, bytesToB64url: bytesToB64url, b64urlToBytes: b64urlToBytes, utf8Text: utf8Text, derToRawSignature: derToRawSignature };
 }));
