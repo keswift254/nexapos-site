@@ -253,6 +253,10 @@
       return;
     }
     show('screen-till', true);
+    // Reports are for the owner and managers only; a cashier has no button for them (see canSeeShopFigures).
+    var seesReports = window.NexaLiteCore.canSeeShopFigures(user);
+    show('bar-reports', seesReports);
+    show('home-reports', seesReports);
     setText('till-shop', status.shopName || 'NexaPOS Lite');
     setText('till-user', user.name + ' (' + user.roleName + ')');
     setText('home-who', user.name);
@@ -278,6 +282,8 @@
   // ---- tabs --------------------------------------------------------------------------------------------------
   var TAB_NAMES = ['home', 'sell', 'products', 'reports', 'sales'];
   function showTab(name) {
+    // The owner, 2026-11-23: "I want the reports section completely removed from cashier user" - nothing opens it for one.
+    if (name === 'reports' && !window.NexaLiteCore.canSeeShopFigures(core.currentUser())) { name = 'home'; }
     ui.tab = name;
     for (var i = 0; i < TAB_NAMES.length; i++) {
       show('panel-' + TAB_NAMES[i], TAB_NAMES[i] === name);

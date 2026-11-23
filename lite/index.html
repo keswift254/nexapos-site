@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-23.2">
+  <meta name="lite-build" content="2026-11-23.3">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -87,8 +87,9 @@
     .legend span { margin-right: 14px; white-space: nowrap; }
     .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 5px; }
     .chart { display: block; width: 100%; max-width: 600px; height: auto; margin: 0 auto; }
-    .homeactions { text-align: center; margin: 14px 0 6px; }
+    .homeactions { text-align: center; margin: 4px 0 12px; }
     .homeactions button { margin: 10px 6px 0; }
+    #home-newsale { min-height: 64px; font-size: 21px; font-weight: 700; border-radius: 16px; margin: 4px 0 6px; -webkit-box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); }
     /* Reports */
     .metrics { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: 6px -6px 0; }
     .metric { box-sizing: border-box; width: 50%; padding: 6px; display: -webkit-flex; display: flex; }
@@ -290,7 +291,7 @@
         <button id="bar-refresh" class="icon" type="button" title="Refresh: send what is waiting and update the shop data" aria-label="Refresh: send what is waiting and update the shop data"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
         </div>
         <div class="group">
-        <button id="bar-reports" class="icon" type="button" title="Reports" aria-label="Reports"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg></button>
+        <button id="bar-reports" class="icon hidden" type="button" title="Reports" aria-label="Reports"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg></button>
         <button id="bar-settings" class="icon" type="button" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
         <button id="bar-support" class="icon" type="button" title="Support" aria-label="Support"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h4v1h-7v2h6c1.66 0 3-1.34 3-3V10c0-4.97-4.03-9-9-9z"/></svg></button>
         <button id="logout-button" class="icon" type="button" title="Log out" aria-label="Log out"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg></button>
@@ -313,6 +314,13 @@
         </div>
         <div id="home-support"></div>
         <div id="home-message"></div>
+        <div class="homeactions">
+          <button id="home-newsale" class="big" type="button">New Sale</button>
+          <button id="home-inventory" class="secondary" type="button">Inventory</button>
+          <button id="home-reports" class="secondary hidden" type="button">Reports</button>
+          <button id="home-sales" class="secondary" type="button">Sales</button>
+          <button id="home-expenses" class="secondary hidden" type="button">Expenses</button>
+        </div>
         <div class="statgrid">
           <div class="stat hidden" id="stat-sales-card"><div class="card">
             <div class="statlabel"><span>Sales Today</span><button class="eye" id="eye-sales" type="button" aria-label="Hide or show the figures"></button></div>
@@ -336,13 +344,6 @@
           <div class="legend"><span><i style="background:#515B92"></i>Sales</span><span><i style="background:#F44336"></i>Expenses</span><span><i style="background:#4CAF50"></i>Net Profit</span></div>
           <div id="trend-chart"></div>
           <p class="muted" id="trend-detail" style="text-align:center;margin:4px 0 0"></p>
-        </div>
-        <div class="homeactions">
-          <button id="home-newsale" class="big" type="button">New Sale</button>
-          <button id="home-inventory" class="secondary" type="button">Inventory</button>
-          <button id="home-reports" class="secondary" type="button">Reports</button>
-          <button id="home-sales" class="secondary" type="button">Sales</button>
-          <button id="home-expenses" class="secondary hidden" type="button">Expenses</button>
         </div>
         <p class="muted" id="home-updated" style="text-align:center"></p>
         <div style="text-align:center"><button id="home-refresh" class="outlined small" type="button">Refresh</button></div>
@@ -648,6 +649,6 @@
   <script src="lite-sale.js?v=6"></script>
   <script src="lite-barcode.js?v=1"></script>
   <script src="lite-core.js?v=22"></script>
-  <script src="lite.js?v=27"></script>
+  <script src="lite.js?v=28"></script>
 </body>
 </html>
