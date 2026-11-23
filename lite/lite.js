@@ -1473,10 +1473,17 @@
   // ---- the Sales tab -----------------------------------------------------------------------------------------
   /** The "Today on this iPad" card: what was sold since midnight, split by how it was paid. */
   function renderToday() {
-    var s = core.todaySummary();
-    var info = core.shopInfo();
     var body = el('today-rows');
     body.innerHTML = '';
+    // The day's totals are for the owner and managers (see canSeeShopFigures); a cashier keeps the list of sales below.
+    var allowed = window.NexaLiteCore.canSeeShopFigures(core.currentUser());
+    show('today-card', allowed);
+    if (!allowed) {
+      setText('today-note', '');
+      return;
+    }
+    var s = core.todaySummary();
+    var info = core.shopInfo();
     function row(label, value, className) {
       var tr = make('tr', className || '');
       tr.appendChild(make('td', '', label));
@@ -2025,8 +2032,12 @@
   var REPORT_MODES = ['day', 'month', 'expenses', 'range'];
 
   function setReportMode(mode) {
+    var allowed = window.NexaLiteCore.canSeeShopFigures(core.currentUser());
+    if (mode === 'expenses' && !allowed) { mode = 'day'; }
     ui.reportMode = mode;
     for (var i = 0; i < REPORT_MODES.length; i++) { el('rm-' + REPORT_MODES[i]).className = REPORT_MODES[i] === mode ? 'on' : ''; }
+    // A cashier has no Expenses report (see canSeeShopFigures).
+    show('rm-expenses', allowed);
     show('rf-date', mode === 'day' || mode === 'expenses');
     show('rf-month', mode === 'month');
     show('rf-range', mode === 'range');
@@ -2037,7 +2048,8 @@
   }
 
   function initReports() {
-    if (ui.reportsReady) { return; }
+    // Who is signed in can change between visits: put the report modes right for them every time.
+    if (ui.reportsReady) { setReportMode(ui.reportMode); return; }
     ui.reportsReady = true;
     var now = new Date();
     var monthSelect = el('report-month');
@@ -2113,6 +2125,10 @@
       waiting.appendChild(send);
       box.appendChild(waiting);
     }
+    // A cashier gets the sales and refunds only - to find one and refund it - with no totals, profit, expenses or Print
+    // (the printed report carries them). See canSeeShopFigures.
+    var totals = window.NexaLiteCore.canSeeShopFigures(core.currentUser());
+    if (!totals) { box.appendChild(make('p', 'muted', 'The sales and refunds of this period. The totals are for the owner and managers.')); }
     var metrics = make('div', 'metrics');
     metrics.appendChild(metricTile('Paid Sales', money(report.salesTotalCents)));
     if (report.refunds.length > 0) { metrics.appendChild(metricTile('Refunds', money(report.refundsTotalCents))); }
@@ -2122,12 +2138,14 @@
     if (monthly) { metrics.appendChild(metricTile('Gross Profit', money(report.grossProfitCents))); }
     metrics.appendChild(metricTile(monthly ? 'Net Profit' : 'Grand Total', money(monthly ? report.netProfitCents : report.grandTotalCents)));
     metrics.appendChild(metricTile('Transactions', String(report.transactionCount)));
-    box.appendChild(metrics);
     var printIt = make('button', 'outlined small', 'Print');
     printIt.type = 'button';
     printIt.style.marginTop = '12px';
     printIt.onclick = printReport;
-    box.appendChild(printIt);
+    if (totals) {
+      box.appendChild(metrics);
+      box.appendChild(printIt);
+    }
 
     var saleRows = [];
     for (var i = 0; i < report.sales.length; i++) {
@@ -2147,7 +2165,7 @@
       saleRows.push(saleRow);
     }
     var salesCard = reportCard('Sales', 'No paid sales for this period.', saleRows);
-    if (report.salesTruncated) { salesCard.appendChild(make('p', 'muted', 'Only the latest ' + report.sales.length + ' of ' + report.transactionCount + ' sales are listed. The totals include all of them.')); }
+    if (report.salesTruncated) { salesCard.appendChild(make('p', 'muted', totals ? 'Only the latest ' + report.sales.length + ' of ' + report.transactionCount + ' sales are listed. The totals include all of them.' : 'Only the latest ' + report.sales.length + ' sales are listed.')); }
     box.appendChild(salesCard);
 
     if (report.refunds.length > 0) {
@@ -2159,13 +2177,16 @@
         refundRows.push(refundRow);
       }
       var refundsCard = reportCard('Refunds', 'No refunds for this period.', refundRows);
-      if (report.refundsTruncated) { refundsCard.appendChild(make('p', 'muted', 'Only the latest ' + report.refunds.length + ' of ' + report.refundCount + ' refunds are listed. The total includes all of them.')); }
-      var refundTotalLine = make('div', 'grandrow');
-      refundTotalLine.appendChild(make('span', '', 'Total Refunds'));
-      refundTotalLine.appendChild(make('span', '', '-' + money(report.refundsTotalCents)));
-      refundsCard.appendChild(refundTotalLine);
+      if (report.refundsTruncated) { refundsCard.appendChild(make('p', 'muted', totals ? 'Only the latest ' + report.refunds.length + ' of ' + report.refundCount + ' refunds are listed. The total includes all of them.' : 'Only the latest ' + report.refunds.length + ' refunds are listed.')); }
+      if (totals) {
+        var refundTotalLine = make('div', 'grandrow');
+        refundTotalLine.appendChild(make('span', '', 'Total Refunds'));
+        refundTotalLine.appendChild(make('span', '', '-' + money(report.refundsTotalCents)));
+        refundsCard.appendChild(refundTotalLine);
+      }
       box.appendChild(refundsCard);
     }
+    if (!totals) { return; }
 
     var expenseRows = [];
     for (var e = 0; e < report.expenses.length; e++) {
@@ -2212,7 +2233,7 @@
   /** Prints the report on the iPad's printer (AirPrint), as a plain page. */
   function printReport() {
     var report = ui.report;
-    if (!report) { return; }
+    if (!report || !window.NexaLiteCore.canSeeShopFigures(core.currentUser())) { return; }
     if (typeof window.print !== 'function') { window.alert('This browser cannot print.'); return; }
     var info = core.shopInfo();
     var monthly = report.range.mode === 'month';
