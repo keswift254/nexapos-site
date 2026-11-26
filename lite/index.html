@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="lite-build" content="2026-11-16.1">
+  <meta name="lite-build" content="2026-11-26.1">
   <title>NexaPOS Lite</title>
   <style>
     /* The look of the apps (Material 3, indigo): the exact colours of the app's own theme. */
@@ -40,9 +40,6 @@
     .notice.ok { background: #DEE0FF; background: var(--primary-container); color: #394379; color: var(--on-primary-container); }
     .hidden { display: none !important; }
     .topbar { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; }
-    .tabs { display: -webkit-flex; display: flex; margin: 8px 0 0; border-bottom: 1px solid #C7C5D0; border-bottom: 1px solid var(--outline-variant); }
-    .tab { -webkit-flex: 1; flex: 1; text-align: center; padding: 14px 2px 12px; font-size: 13px; font-weight: 500; letter-spacing: .1px; color: #46464F; color: var(--on-surface-variant); border-bottom: 3px solid transparent; margin-bottom: -1px; }
-    .tab.on { color: #515B92; color: var(--primary); border-bottom-color: #515B92; border-bottom-color: var(--primary); }
     table { width: 100%; border-collapse: collapse; }
     th { text-align: left; font-size: 12px; font-weight: 500; color: #46464F; color: var(--on-surface-variant); padding: 6px 4px; border-bottom: 1px solid #C7C5D0; border-bottom: 1px solid var(--outline-variant); }
     td { padding: 9px 4px; border-bottom: 1px solid #E4E1E9; border-bottom: 1px solid var(--surface-highest); vertical-align: middle; }
@@ -90,8 +87,9 @@
     .legend span { margin-right: 14px; white-space: nowrap; }
     .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 5px; }
     .chart { display: block; width: 100%; max-width: 600px; height: auto; margin: 0 auto; }
-    .homeactions { text-align: center; margin: 14px 0 6px; }
+    .homeactions { text-align: center; margin: 4px 0 12px; }
     .homeactions button { margin: 10px 6px 0; }
+    #home-newsale { min-height: 64px; font-size: 21px; font-weight: 700; border-radius: 16px; margin: 4px 0 6px; -webkit-box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); }
     /* Reports */
     .metrics { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: 6px -6px 0; }
     .metric { box-sizing: border-box; width: 50%; padding: 6px; display: -webkit-flex; display: flex; }
@@ -112,6 +110,106 @@
     .grandrow.bold { font-weight: 700; font-size: 18px; }
     .reporthead { margin: 10px 0 0; }
     .reporthead .period { color: #46464F; color: var(--on-surface-variant); font-size: 13px; font-weight: 500; letter-spacing: .5px; }
+    /* The top bar: the apps' buttons as icons */
+    .toolbar { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; margin: 0 -8px; }
+    .toolbar .group { display: -webkit-flex; display: flex; }
+    button.icon { margin: 0; width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 22px; background: transparent; color: #1B1B21; color: var(--on-surface); display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; }
+    button.icon svg { display: block; }
+    button.icon[disabled] { opacity: .38; }
+    .searchrow { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: space-between; justify-content: space-between; margin: 0 -8px 4px; }
+    .searchrow .who { font-size: 22px; line-height: 28px; padding-left: 12px; padding-right: 8px; text-align: right; word-wrap: break-word; min-width: 0; }
+    a.btn { display: block; text-align: center; text-decoration: none; font-size: 16px; font-weight: 500; min-height: 52px; line-height: 52px; border-radius: 26px; margin: 12px 0 0; background: #515B92; background: var(--primary); color: #fff; }
+    a.btn.secondary { background: #E0E1F9; background: var(--secondary-container); color: #434659; color: var(--on-secondary-container); }
+    /* Support chat (the apps' iMessage-style conversation) */
+    .menurow { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; width: 100%; box-sizing: border-box; margin: 8px 0 0; padding: 14px 16px; border-radius: 12px; background: #F5F2FA; background: var(--surface-low); color: #1B1B21; color: var(--on-surface); text-align: left; font-weight: 400; font-size: 16px; min-height: 52px; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 1px 3px 1px rgba(0,0,0,.1); }
+    .menurow span.chev { color: #46464F; color: var(--on-surface-variant); font-size: 22px; padding-left: 10px; }
+    .ticket { display: block; width: 100%; box-sizing: border-box; margin: 8px 0 0; padding: 12px 16px; border-radius: 12px; background: #F5F2FA; background: var(--surface-low); color: #1B1B21; color: var(--on-surface); text-align: left; font-weight: 400; min-height: 0; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 1px 3px 1px rgba(0,0,0,.1); }
+    .ticket.waiting { background: #E0E1F9; background: var(--secondary-container); }
+    .ticket .subject { font-weight: 600; font-size: 16px; word-wrap: break-word; }
+    .ticket.waiting .subject { font-weight: 800; }
+    .ticket .meta { font-size: 13px; color: #46464F; color: var(--on-surface-variant); margin-top: 4px; }
+    .ticket.on { background: #DEE0FF; background: var(--primary-container); box-shadow: 0 0 0 2px #515B92; box-shadow: 0 0 0 2px var(--primary); }
+    .ticket .amt { float: right; font-weight: 700; font-size: 16px; padding-left: 10px; }
+    .ticket .fits { color: #1B6B2F; font-weight: 600; }
+    .sku.fits { color: #1B6B2F; }
+    .sku.warntext { color: #7A5300; }
+    .swipewrap { position: relative; margin: 8px 0 0; border-radius: 12px; overflow: hidden; }
+    .swipewrap.swiping { background: #BA1A1A; }
+    .swipewrap .ticket { position: relative; margin: 0; }
+    .swipewrap .swipeback { position: absolute; right: 18px; top: 50%; margin-top: -10px; line-height: 20px; color: #fff; font-weight: 700; display: none; }
+    .swipewrap.swiping .swipeback { display: block; }
+    .chip { display: inline-block; font-size: 13px; padding: 4px 12px; border-radius: 8px; border: 1px solid #C7C5D0; border: 1px solid var(--outline-variant); margin: 6px 0 2px; }
+    .chat { background: #fff; border: 1px solid #E4E1E9; border-radius: 12px; padding: 10px 10px 4px; margin: 10px 0; height: 56vh; min-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .chat .day { text-align: center; font-size: 12px; color: #46464F; color: var(--on-surface-variant); margin: 10px 0 6px; font-weight: 500; }
+    .msg { display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; margin: 4px 0 8px; }
+    .msg.mine { -webkit-align-items: flex-end; align-items: flex-end; }
+    .msg.theirs { -webkit-align-items: flex-start; align-items: flex-start; }
+    .bubble { max-width: 82%; border-radius: 18px; padding: 8px 12px; word-wrap: break-word; position: relative; }
+    .mine .bubble { background: #0078FE; color: #fff; border-bottom-right-radius: 6px; }
+    .theirs .bubble { background: #E9E7EF; background: var(--surface-high); color: #1B1B21; color: var(--on-surface); border-bottom-left-radius: 6px; }
+    .bubble.flash { box-shadow: 0 0 0 3px #0078FE; }
+    .bubble .who { font-size: 12px; font-weight: 700; opacity: .8; }
+    .bubble .body { white-space: pre-wrap; font-size: 16px; line-height: 1.35; margin-top: 2px; }
+    .bubble img.photo { display: block; max-width: 100%; max-height: 220px; border-radius: 10px; margin-top: 6px; background: rgba(0,0,0,.08); min-width: 80px; min-height: 60px; }
+    .bubble .quote { border-left: 3px solid rgba(127,127,127,.7); padding: 2px 8px; margin-bottom: 6px; font-size: 13px; opacity: .9; }
+    .bubble .quote b { display: block; font-size: 12px; }
+    .msg .time { font-size: 11px; color: #46464F; color: var(--on-surface-variant); margin: 2px 6px 0; }
+    .reacts { margin: -6px 8px 0; }
+    .reacts span { display: inline-block; background: #fff; border: 1px solid #C7C5D0; border-radius: 12px; padding: 1px 6px; font-size: 14px; margin-right: 3px; }
+    .reacts span.me { border-color: #0078FE; background: #E5F0FF; }
+    .msg .status { font-size: 11px; color: #46464F; color: var(--on-surface-variant); margin: 2px 8px 0; }
+    .msg .status.bad { color: #BA1A1A; color: var(--error); font-weight: 600; }
+    .composer { display: -webkit-flex; display: flex; -webkit-align-items: flex-end; align-items: flex-end; }
+    .composer textarea { -webkit-flex: 1; flex: 1; min-width: 0; box-sizing: border-box; font-size: 16px; font-family: inherit; padding: 11px 12px; border: 1px solid #767680; border-radius: 18px; resize: none; height: 44px; max-height: 120px; -webkit-appearance: none; }
+    .composer button { margin: 0 0 0 6px; }
+    .composer button.round { width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 22px; }
+    .replying { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; background: #E0E1F9; border-radius: 12px; padding: 8px 12px; margin-top: 6px; font-size: 13px; }
+    .replying button { margin: 0; }
+    .thumbs { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin-top: 6px; }
+    .thumbs .thumb { position: relative; width: 64px; height: 64px; margin: 0 8px 8px 0; }
+    .thumbs .thumb img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+    .thumbs .thumb button { position: absolute; top: -8px; right: -8px; width: 26px; min-width: 26px; height: 26px; min-height: 26px; padding: 0; margin: 0; border-radius: 13px; font-size: 16px; line-height: 26px; background: #BA1A1A; }
+    .sheet { position: fixed; left: 0; right: 0; bottom: 0; top: 0; z-index: 50; background: rgba(0,0,0,.35); display: -webkit-flex; display: flex; -webkit-align-items: flex-end; align-items: flex-end; }
+    .sheet .panel { width: 100%; max-width: 860px; margin: 0 auto; background: #fff; border-radius: 16px 16px 0 0; padding: 14px 16px 22px; box-sizing: border-box; }
+    .sheet .emojis { display: -webkit-flex; display: flex; -webkit-justify-content: space-around; justify-content: space-around; margin-bottom: 6px; }
+    .sheet .emojis button { margin: 0; background: transparent; font-size: 28px; padding: 0 6px; min-width: 48px; border-radius: 24px; }
+    .sheet .emojis button.on { background: #E5F0FF; }
+    .sheet button.item { display: block; width: 100%; text-align: left; margin: 0; background: transparent; color: #1B1B21; border-radius: 8px; border-top: 1px solid #E4E1E9; border-radius: 0; font-weight: 400; font-size: 17px; }
+    .photoview { position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 60; background: rgba(0,0,0,.92); display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; }
+    .photoview img { max-width: 100%; max-height: 100%; }
+    .photoview button { position: absolute; top: 12px; right: 12px; margin: 0; }
+    select.inline { width: auto; min-width: 180px; }
+    button.icon { position: relative; }
+    .countbadge { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; line-height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; background: #BA1A1A; color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+    .supportnote { cursor: pointer; }
+    /* My License, like the apps': status, the countdown in tiles, the device ID */
+    .licensehead { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin-bottom: 14px; }
+    .licensehead svg { margin-right: 12px; flex: none; }
+    .licensehead .state { font-size: 24px; line-height: 32px; font-weight: 700; }
+    .countdown { display: -webkit-flex; display: flex; margin: 8px 0 0; }
+    .countdown .tile { -webkit-flex: 1; flex: 1; margin-right: 8px; padding: 10px 0; border-radius: 8px; text-align: center; background: #E4E1E9; background: var(--surface-highest); }
+    .countdown .tile:last-child { margin-right: 0; }
+    .countdown .tile b { display: block; font-size: 24px; line-height: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .countdown .tile span { font-size: 12px; color: #46464F; color: var(--on-surface-variant); }
+    .deviceid { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: center; align-items: center; }
+    .deviceid .idtext { min-width: 0; word-wrap: break-word; -webkit-user-select: text; user-select: text; }
+    .deviceid .idtext b { display: block; font-size: 16px; font-weight: 500; }
+    .deviceid button { margin: 0 0 0 10px; flex: none; }
+    .keytext { font-family: Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; }
+    .qrbox { text-align: center; margin: 8px 0 12px; }
+    .qrbox img.qr { background: #fff; padding: 6px; border-radius: 8px; max-width: 100%; }
+    /* Refunds */
+    .refline { padding: 12px 0; border-bottom: 1px solid #E4E1E9; border-bottom: 1px solid var(--surface-highest); }
+    .refline .top { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; }
+    .refline .name { font-weight: 500; min-width: 0; word-wrap: break-word; }
+    .refline .amount { white-space: nowrap; padding-left: 10px; font-weight: 500; }
+    .refline.done { opacity: .5; }
+    .stepper { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin: 8px 0 0; }
+    .stepper button { margin: 0; min-width: 48px; padding: 0 12px; font-size: 22px; }
+    .stepper .qty { min-width: 44px; font-size: 20px; }
+    .stepper label.keep { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin: 0 0 0 auto; font-size: 14px; font-weight: 400; letter-spacing: 0; color: #1B1B21; }
+    .stepper label.keep input { width: 22px; height: 22px; margin: 0 8px 0 0; padding: 0; -webkit-appearance: checkbox; appearance: checkbox; }
+    .paper .pp-title { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 2px; border-top: 1px solid #000; padding: 6px 0 0; margin: 10px 0 0; }
     /* The receipt, drawn like the apps' (monospace paper), on screen and when printing */
     .paper { background: #fff; color: #000; border: 1px solid #C7C5D0; border-radius: 4px; padding: 20px 16px; max-width: 380px; margin: 12px auto; font-family: Menlo, 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.4; }
     .paper .pp-center { text-align: center; }
@@ -179,6 +277,7 @@
         <input id="password" type="password" autocapitalize="none" autocorrect="off" autocomplete="off">
         <div id="login-message"></div>
         <button id="login-button" type="button">Log in</button>
+        <button id="quick-login-button" class="secondary wide hidden" type="button">Sign in with Face ID or passcode</button>
       </div>
       <p class="muted" id="login-updated"></p>
       <button id="login-refresh" class="secondary" type="button">Update shop data</button>
@@ -186,31 +285,48 @@
     </section>
 
     <section id="screen-till" class="hidden">
+      <div class="toolbar">
+        <div class="group">
+        <button id="bar-home" class="icon" type="button" title="Dashboard" aria-label="Dashboard"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></button>
+        <button id="bar-refresh" class="icon" type="button" title="Refresh: send what is waiting and update the shop data" aria-label="Refresh: send what is waiting and update the shop data"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+        </div>
+        <div class="group">
+        <button id="bar-reports" class="icon hidden" type="button" title="Reports" aria-label="Reports"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg></button>
+        <button id="bar-settings" class="icon" type="button" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+        <button id="bar-support" class="icon" type="button" title="Support" aria-label="Support"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h4v1h-7v2h6c1.66 0 3-1.34 3-3V10c0-4.97-4.03-9-9-9z"/></svg></button>
+        <button id="logout-button" class="icon" type="button" title="Log out" aria-label="Log out"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg></button>
+        </div>
+      </div>
+      <div id="bar-message"></div>
       <div class="topbar">
         <div><h1 id="till-shop">NexaPOS Lite</h1><div class="muted" id="till-user"></div></div>
-        <button id="logout-button" class="secondary small" type="button">Log out</button>
       </div>
       <div id="till-license"></div>
       <div id="till-sales"></div>
       <div id="till-notices"></div>
       <div id="till-online"></div>
-      <div class="tabs">
-        <div class="tab on" id="tab-home">Dashboard</div>
-        <div class="tab" id="tab-sell">New Sale</div>
-        <div class="tab" id="tab-products">Inventory</div>
-        <div class="tab" id="tab-reports">Reports</div>
-        <div class="tab" id="tab-sales">Sales</div>
-      </div>
 
       <!-- DASHBOARD: the apps' home screen, for the whole shop -->
       <div id="panel-home">
+        <div class="searchrow">
+        <button id="home-search" class="icon" type="button" title="Search the inventory" aria-label="Search the inventory"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
+          <div class="who" id="home-who"></div>
+        </div>
+        <div id="home-support"></div>
         <div id="home-message"></div>
+        <div class="homeactions">
+          <button id="home-newsale" class="big" type="button">New Sale</button>
+          <button id="home-inventory" class="secondary" type="button">Inventory</button>
+          <button id="home-reports" class="secondary hidden" type="button">Reports</button>
+          <button id="home-sales" class="secondary" type="button">Sales</button>
+          <button id="home-expenses" class="secondary hidden" type="button">Expenses</button>
+        </div>
         <div class="statgrid">
-          <div class="stat"><div class="card">
+          <div class="stat hidden" id="stat-sales-card"><div class="card">
             <div class="statlabel"><span>Sales Today</span><button class="eye" id="eye-sales" type="button" aria-label="Hide or show the figures"></button></div>
             <div class="statvalue" id="stat-sales">...</div><div class="statsub" id="stat-sales-sub"></div><div id="stat-sales-pct"></div>
           </div></div>
-          <div class="stat"><div class="card">
+          <div class="stat hidden" id="stat-profit-card"><div class="card">
             <div class="statlabel"><span>Net Profit Today</span><button class="eye" id="eye-profit" type="button" aria-label="Hide or show the figures"></button></div>
             <div class="statvalue" id="stat-profit">...</div><div class="statsub" id="stat-profit-sub"></div><div id="stat-profit-pct"></div>
           </div></div>
@@ -218,21 +334,16 @@
             <div class="statlabel"><span>Low Stock</span></div>
             <div class="statvalue" id="stat-low">...</div><div class="statsub" id="stat-low-sub"></div>
           </div></div>
-          <div class="stat"><div class="card">
+          <div class="stat hidden" id="stat-stock-card"><div class="card">
             <div class="statlabel"><span>Stock Value</span><button class="eye" id="eye-stock" type="button" aria-label="Hide or show the figures"></button></div>
             <div class="statvalue" id="stat-stock">...</div><div class="statsub">at cost price</div>
           </div></div>
         </div>
-        <div class="card">
+        <div class="card hidden" id="home-trend-card">
           <h2>Last 7 Days</h2>
           <div class="legend"><span><i style="background:#515B92"></i>Sales</span><span><i style="background:#F44336"></i>Expenses</span><span><i style="background:#4CAF50"></i>Net Profit</span></div>
           <div id="trend-chart"></div>
-        </div>
-        <div class="homeactions">
-          <button id="home-newsale" class="big" type="button">New Sale</button>
-          <button id="home-inventory" class="secondary" type="button">Inventory</button>
-          <button id="home-reports" class="secondary" type="button">Reports</button>
-          <button id="home-expenses" class="secondary hidden" type="button">Expenses</button>
+          <p class="muted" id="trend-detail" style="text-align:center;margin:4px 0 0"></p>
         </div>
         <p class="muted" id="home-updated" style="text-align:center"></p>
         <div style="text-align:center"><button id="home-refresh" class="outlined small" type="button">Refresh</button></div>
@@ -305,6 +416,7 @@
               <div class="seg" id="pay-seg">
                 <button type="button" id="pay-cash" class="on">Cash</button>
                 <button type="button" id="pay-paystack">M-Pesa Prompt</button>
+                <button type="button" id="pay-till">M-Pesa Till/Paybill</button>
               </div>
               <label for="discount">Discount</label>
               <input id="discount" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
@@ -318,6 +430,14 @@
                 <input id="paystack-phone" type="text" inputmode="tel" placeholder="0712 345 678" autocomplete="off">
                 <p class="muted">An M-Pesa prompt is sent to this phone. The customer enters their M-Pesa PIN and this till updates by itself. Needs the internet.</p>
                 <button id="show-qr-button" class="secondary" type="button" style="margin-top:0">Show a code instead (the customer scans it)</button>
+              </div>
+              <div id="pay-till-box" class="hidden">
+                <p class="muted">The customer pays your M-Pesa till or paybill from their phone. When their payment of the sale total reaches your shop phone, the sale completes by itself. If two or more payments of that amount have arrived, tap the customer's one, then Complete Sale. Needs the internet.</p>
+                <div id="till-pay-message"></div>
+                <div id="till-pay-list"></div>
+                <button id="till-pay-refresh" class="secondary small" type="button" style="margin-top:8px">Refresh</button>
+                <label for="till-code">M-Pesa code</label>
+                <input id="till-code" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="Tap a payment above, or type the code">
               </div>
               <div id="sell-message"></div>
               <button id="complete-button" class="big" type="button">Complete Sale</button>
@@ -410,9 +530,101 @@
         <button id="exp-add" class="big" type="button">Add Expense</button>
       </div>
 
+      <!-- SETTINGS (the icon in the top bar): a menu of pages, as in the apps -->
+      <div id="panel-settings" class="hidden">
+        <div id="settings-menu-view">
+          <button id="settings-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Dashboard</button>
+          <h2 style="margin-top:8px">Settings</h2>
+          <div id="settings-menu"></div>
+        </div>
+        <div id="settings-page-view" class="hidden">
+          <button id="settings-page-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Settings</button>
+          <div id="settings-page"></div>
+        </div>
+      </div>
+
+      <!-- SUPPORT (the icon in the top bar): tickets and a real conversation, as in the apps -->
+      <div id="panel-support" class="hidden">
+        <div id="support-list-view">
+          <button id="support-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Dashboard</button>
+          <button id="support-refresh" class="secondary small" type="button" style="margin:0 0 6px">Refresh</button>
+          <h2 style="margin-top:8px">Your conversations</h2>
+          <div class="muted" id="support-sub">Follow your requests and messages from NexaPOS Support.</div>
+          <div id="support-message"></div>
+          <div id="support-tickets"></div>
+          <button id="support-new" class="big" type="button">New ticket</button>
+          <p class="muted" style="margin-top:16px;text-align:center">In a hurry? Call <a href="tel:+254768415017">0768 415 017</a> or <a href="https://wa.me/message/M5SGWZ664XJ4C1" target="_blank" rel="noopener">chat on WhatsApp</a>.</p>
+        </div>
+        <div id="support-new-view" class="hidden">
+          <button id="support-new-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Conversations</button>
+          <div class="card">
+            <h2>Open support ticket</h2>
+            <label for="ticket-subject">Subject</label>
+            <input id="ticket-subject" type="text" maxlength="160" placeholder="What do you need help with?" autocomplete="off">
+            <label for="ticket-message">Describe the issue</label>
+            <textarea id="ticket-message" rows="5" maxlength="8000" style="width:100%;box-sizing:border-box;font-size:16px;font-family:inherit;padding:11px 12px;border:1px solid #767680;border-radius:4px"></textarea>
+            <label for="ticket-email">Email address (required)</label>
+            <input id="ticket-email" type="email" placeholder="you@example.com" autocapitalize="none" autocorrect="off" autocomplete="off">
+            <div class="muted" style="margin-top:4px">Every reply from support is also emailed here.</div>
+            <div class="thumbs" id="ticket-thumbs"></div>
+            <input id="ticket-file" type="file" accept="image/*" multiple class="hidden">
+            <button id="ticket-attach" class="outlined small" type="button" style="margin-top:8px">Add photos</button>
+            <div id="ticket-message-box"></div>
+            <button id="ticket-send" class="big" type="button">Send ticket</button>
+          </div>
+        </div>
+        <div id="support-thread-view" class="hidden">
+          <button id="thread-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Conversations</button>
+          <button id="thread-refresh" class="secondary small" type="button" style="margin:0 0 6px">Refresh</button>
+          <button id="thread-close" class="secondary small" type="button" style="margin:0 0 6px">Close ticket</button>
+          <h2 id="thread-subject" style="margin:6px 0 0"></h2>
+          <div><span class="chip" id="thread-status"></span></div>
+          <div class="muted" id="thread-email"></div>
+          <div id="thread-message"></div>
+          <div class="chat" id="chat"></div>
+          <div id="chat-replying"></div>
+          <div class="thumbs" id="chat-thumbs"></div>
+          <div class="composer">
+            <input id="chat-file" type="file" accept="image/*" multiple class="hidden">
+            <button id="chat-attach" class="icon" type="button" title="Add photos" aria-label="Add photos" style="margin:0 4px 0 0"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg></button>
+            <textarea id="chat-text" rows="1" maxlength="8000" placeholder="Reply to this ticket..."></textarea>
+            <button id="chat-send" class="round" type="button" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- REFUND (opened from a sale in Reports or on the Sales tab) -->
+      <div id="panel-refund" class="hidden">
+        <button id="refund-back" class="secondary small" type="button" style="margin:0 0 6px">&lsaquo; Back</button>
+        <div id="refund-message"></div>
+        <div id="refund-body" class="hidden">
+          <div class="card">
+            <h2>Refund a sale</h2>
+            <div id="refund-sub" class="muted"></div>
+          </div>
+          <div class="card">
+            <h2>What is being given back?</h2>
+            <div id="refund-lines"></div>
+            <button id="refund-all" class="secondary small" type="button" style="margin-top:12px">Refund the whole sale</button>
+            <button id="refund-clear" class="outlined small" type="button" style="margin-top:12px">Clear</button>
+          </div>
+          <div class="card">
+            <label for="refund-reason" style="margin-top:0">Reason for the refund</label>
+            <input id="refund-reason" type="text" maxlength="200" autocomplete="off">
+            <table class="totals" style="margin-top:12px"><tbody id="refund-totals"></tbody></table>
+            <div id="refund-payback"></div>
+            <label for="refund-password">Your password</label>
+            <input id="refund-password" type="password" autocapitalize="none" autocorrect="off" autocomplete="off">
+            <div id="refund-form-message"></div>
+            <button id="refund-submit" class="big" type="button">Refund</button>
+          </div>
+        </div>
+        <div id="refund-done" class="hidden"></div>
+      </div>
+
       <!-- SALES -->
       <div id="panel-sales" class="hidden">
-        <div class="card">
+        <div class="card hidden" id="today-card">
           <h2>Today on this iPad</h2>
           <table class="totals"><tbody id="today-rows"></tbody></table>
           <p class="muted" id="today-note"></p>
@@ -434,9 +646,9 @@
   <div id="print-receipt"></div>
   <script src="bcrypt.min.js?v=2"></script>
   <script src="qrcode.js?v=1"></script>
-  <script src="lite-sale.js?v=4"></script>
+  <script src="lite-sale.js?v=6"></script>
   <script src="lite-barcode.js?v=1"></script>
-  <script src="lite-core.js?v=12"></script>
-  <script src="lite.js?v=12"></script>
+  <script src="lite-core.js?v=22"></script>
+  <script src="lite.js?v=28"></script>
 </body>
 </html>

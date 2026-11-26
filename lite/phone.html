@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Set up this phone - NexaPOS</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #FBF8FF; color: #1B1B21; font-family: -apple-system, Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+    .page { max-width: 560px; margin: 0 auto; padding: 20px 16px 48px; }
+    h1 { font-size: 24px; margin: 8px 0 8px; }
+    h2 { font-size: 18px; margin: 0 0 8px; }
+    p { line-height: 1.45; font-size: 16px; margin: 0 0 10px; }
+    .muted { color: #46464F; font-size: 14px; }
+    .card { background: #F5F2FA; border-radius: 12px; padding: 16px; margin: 14px 0; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 1px 3px 1px rgba(0,0,0,.1); }
+    .value { font-family: Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; background: #fff; border: 1px solid #C7C5D0; border-radius: 8px; padding: 10px; margin: 4px 0 8px; -webkit-user-select: all; user-select: all; }
+    .label { font-size: 12px; font-weight: 600; letter-spacing: .4px; color: #46464F; margin-top: 10px; }
+    button { font: inherit; font-size: 15px; font-weight: 500; border: 0; border-radius: 20px; min-height: 40px; padding: 0 18px; background: #515B92; color: #fff; margin: 0 8px 8px 0; }
+    button.secondary { background: #E0E1F9; color: #434659; }
+    button:disabled { opacity: .5; }
+    ol { padding-left: 22px; margin: 0; }
+    li { line-height: 1.45; font-size: 16px; margin: 0 0 10px; }
+    code { font-family: Menlo, Consolas, monospace; font-size: 14px; background: #fff; border: 1px solid #C7C5D0; border-radius: 6px; padding: 1px 6px; }
+    .notice { border-radius: 12px; padding: 10px 14px; margin: 8px 0; font-size: 14px; line-height: 1.4; }
+    .notice.ok { background: #DEE0FF; color: #394379; }
+    .notice.warn { background: #FFF1D6; color: #5E4200; }
+    .notice.bad { background: #FFDAD6; color: #93000A; }
+    .hidden { display: none !important; }
+    figure { margin: 4px 0 16px; text-align: center; }
+    figure img { width: 100%; max-width: 320px; height: auto; border-radius: 12px; border: 1px solid #C7C5D0; background: #fff; }
+    figcaption { font-size: 13px; color: #46464F; margin-top: 4px; }
+    .num { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px; background: #D61824; color: #fff; font-size: 12px; font-weight: 700; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Set up this phone</h1>
+    <p>This phone will pass your shop's M-Pesa payment messages on to NexaPOS, so your tills can check a customer's M-Pesa code against the real message.</p>
+    <p class="muted">Only payments you receive are kept. Your balance, and anything you send or withdraw, is dropped unread.</p>
+
+    <div id="no-key" class="notice warn hidden">This page has no key. On your till open <b>Settings &gt; M-Pesa Till Phone &gt; Set up a phone</b>, then scan the code it shows with this phone's camera.</div>
+
+    <div id="with-key" class="hidden">
+      <div class="card">
+        <h2>1. Your address and key</h2>
+        <p class="muted">You will paste these two into the shortcut below. Keep the key to yourself: it is what lets this phone report payments to your shop.</p>
+        <div class="label">ADDRESS</div>
+        <div class="value" id="address"></div>
+        <button type="button" id="copy-address">Copy address</button>
+        <div class="label">KEY</div>
+        <div class="value" id="key"></div>
+        <button type="button" id="copy-key">Copy key</button>
+        <button type="button" id="check" class="secondary">Check the key</button>
+        <div id="said"></div>
+      </div>
+
+      <div class="card">
+        <h2>2. On an iPhone: make the shortcut</h2>
+        <p class="muted">The pictures are from an iPhone with iOS 27. The red numbers show where to tap.</p>
+        <ol>
+          <li>Open the <b>Shortcuts</b> app and tap <b>+</b> to make a new shortcut.</li>
+          <li>Tap <b>Edit</b>, then <b>Automation</b>, and choose <b>Message</b>. A block "When I receive a message" appears.</li>
+          <li>In that block, set <b>Message contains</b> to <code>Ksh</code> (picture A, <span class="num">1</span> - the picture still shows the older word Confirmed). Every M-Pesa, M-PESA Jumbe and bank payment message has Ksh in it; any other message the phone passes on is dropped by the shop and nothing of it is kept.</li>
+          <li>Tap <b>Search</b> at the bottom (picture A, <span class="num">2</span>), type <code>Get Contents of URL</code> and tap it to add it.</li>
+          <li>Tap its <b>URL</b> and paste the <b>address</b> from step 1 (use Copy address first).</li>
+        </ol>
+        <figure>
+          <img src="phone-guide/step-a-trigger-and-search.jpg?v=1" alt="Picture A: the Message trigger and the Search bar" width="502" height="1062">
+          <figcaption>Picture A</figcaption>
+        </figure>
+        <ol start="6">
+          <li>Tap the small arrow at the end of the address (picture B, <span class="num">1</span>). Method, Headers and Request Body appear.</li>
+        </ol>
+        <figure>
+          <img src="phone-guide/step-b-tap-the-arrow.jpg?v=1" alt="Picture B: the arrow after the address" width="572" height="660">
+          <figcaption>Picture B</figcaption>
+        </figure>
+        <ol start="7">
+          <li>Tap <b>GET</b> next to Method and choose <b>POST</b> (picture C, <span class="num">3</span>). <b>Request Body</b> must say <b>JSON</b> (<span class="num">4</span>).</li>
+          <li>Tap <b>Add new field</b> and choose <b>Text</b>. In its left box type <code>key</code> - tap &#8679; first so the k stays small. In its right box paste the <b>key</b> from step 1 (use Copy key first) (<span class="num">5</span>).</li>
+          <li>Tap <b>Add new field</b> again and choose <b>Text</b>. In its left box type <code>text</code> (small t). Tap its right box but do not type: tap <b>Message</b> above the keyboard, so a blue <b>Message</b> bubble appears (<span class="num">6</span>).</li>
+          <li>Still under <b>Request Body</b>, tap <b>Add new field</b> a third time and choose <b>Text</b>. In its left box type <code>sender</code> (small s). Tap its right box, tap <b>Message</b> above the keyboard so a blue bubble appears, then <b>tap that blue bubble and choose Sender</b>: the bubble in this row must say <b>Sender</b> (the text row keeps <b>Message</b>). Now the shop knows who each SMS came from, and refuses a message that a person typed and sent from their own number. Do not use <b>Add Filter</b> in the "When I receive a message" block for this: a Sender filter there switches the shortcut off.</li>
+          <li>Check that <b>Automation</b> is on (<span class="num">1</span>) and <b>Confirm Before Run</b> is off (<span class="num">2</span>), so the shortcut runs by itself.</li>
+          <li>Tap the back arrow at the top to save.</li>
+          <li><b>Banks that write KES:</b> Equity Bank writes <b>KES</b>, not Ksh, so its messages need a second copy of the shortcut. In the Shortcuts list, press and hold this shortcut and tap <b>Duplicate</b>. Open the copy, change <b>Message contains</b> from <code>Ksh</code> to <code>Confirmed</code>, and check that its <b>Automation</b> is on and <b>Confirm Before Run</b> is off. An M-Pesa message has both words, so it is passed on twice: the shop keeps it once.</li>
+        </ol>
+        <figure>
+          <img src="phone-guide/step-c-finished.jpg?v=1" alt="Picture C: the finished shortcut, with the key hidden" width="580" height="860">
+          <figcaption>Picture C: how it looks when it is done (the key is hidden here)</figcaption>
+        </figure>
+        <div class="notice warn">The three names must be exactly <code>key</code>, <code>text</code> and <code>sender</code>: the key in the first row, the blue <b>Message</b> bubble in the second and the blue <b>Sender</b> bubble in the third. (Picture C was taken before the third row was added.)</div>
+        <p class="muted">Already set up a phone before? Open its shortcut, change <b>Message contains</b> from Confirmed to <code>Ksh</code> (so bank messages such as Co-op Bank's are passed on too), and add the <code>sender</code> row (step 10) if it is not there yet, and make the second copy for Equity Bank (step 13). On the till, <b>Settings &gt; M-Pesa Till Phone</b> shows <b>Sender check on</b> for that phone after its next M-Pesa message.</p>
+        <p class="muted">On an older iPhone (iOS 17 to 26): open Shortcuts, tap <b>Automation</b>, then <b>+</b>, choose <b>Message</b>, set Message contains to Ksh and choose <b>Run Immediately</b>. Then add the same Get Contents of URL step (steps 4 to 10).</p>
+        <p class="muted">If a step looks different on your phone, send a screenshot to NexaPOS support.</p>
+      </div>
+
+      <div class="card">
+        <h2>3. Try it</h2>
+        <p>Lock this phone and check your M-Pesa balance, so that a message arrives. Then on the till open <b>Settings &gt; M-Pesa Till Phone</b> and tap <b>Refresh</b>: this phone shows <b>Last message</b> with the time (picture D). A balance is not a payment, so it is not listed under Payments received.</p>
+        <figure>
+          <img src="phone-guide/step-d-till-last-message.jpg?v=1" alt="Picture D: the till shows the phone with its last message" width="662" height="200">
+          <figcaption>Picture D: the till has heard from the phone</figcaption>
+        </figure>
+        <p>When a customer pays your till or paybill, the payment shows on the till under <b>Payments received</b> a few seconds after the message reaches this phone.</p>
+        <p class="muted">Keep this phone switched on and connected to the internet during shop hours.</p>
+      </div>
+
+      <div class="card">
+        <h2>On an Android phone</h2>
+        <p>The NexaPOS app passes the messages on by itself - no shortcut to make. It needs NexaPOS 1.0.95 or later.</p>
+        <ol>
+          <li>Install NexaPOS on this phone: open <a href="https://nexapos.cc/#get-started">nexapos.cc</a> and download it for Android.</li>
+          <li>Tap <b>Copy key</b> above.</li>
+          <li>Open NexaPOS. On a phone that only gets the M-Pesa messages, tap <b>This phone only passes on M-Pesa messages</b> on its first screen. (On a phone that is already a till of your shop: <b>Settings &gt; M-Pesa Till Phone &gt; M-Pesa messages from this phone</b>.)</li>
+          <li>Paste the key and tap <b>Turn on</b>. When Android asks, allow NexaPOS to receive text messages.</li>
+          <li>If Android says <b>Restricted setting</b> (or does not ask at all): tap <b>Open App info</b> in NexaPOS, then the three dots at the top right &gt; <b>Allow restricted settings</b>, then <b>Permissions &gt; SMS &gt; Allow</b>. Go back and tap <b>Turn on</b> again.</li>
+        </ol>
+        <p class="muted">Only messages from MPESA and banks that mention Ksh, KES or Confirmed leave the phone - never a message from a person's number. It works with NexaPOS closed; without internet the messages wait and go later.</p>
+      </div>
+
+      <p class="muted">You can go back and forth between Shortcuts and this page: this phone remembers the key for 2 hours, then forgets it. Close this page when you have finished.</p>
+    </div>
+  </div>
+  <script>
+    // The page a shop's phone opens (by scanning the code on the till) to be set up as the shop's "M-Pesa till phone".
+    // The key arrives after the # of the address, which a browser never sends to a server. It is moved out of the address
+    // straight away (so it is not left in the address bar or the history) and kept for this tab only, so that reloading the
+    // page does not lose it. Plain ES5: the phone may be an old one.
+    (function () {
+      var API = 'https://sync.nexapos.cc/index.php';
+      var ADDRESS = API + '?action=payment_inbox_ingest';
+      var STORE = 'nexapos-phone-key';
+      function el(id) { return document.getElementById(id); }
+      function show(id, visible) { el(id).className = el(id).className.replace(/\s*\bhidden\b/g, '') + (visible ? '' : ' hidden'); }
+      function say(kind, text) {
+        var box = el('said');
+        box.innerHTML = '';
+        if (!text) { return; }
+        var note = document.createElement('div');
+        note.className = 'notice ' + kind;
+        note.appendChild(document.createTextNode(text));
+        box.appendChild(note);
+      }
+
+      // Setting the shortcut up means going back and forth between Shortcuts and this page, and Safari may reload the page (or
+      // forget this tab's storage) meanwhile. So the key is also kept on this phone for a while, then forgotten.
+      var REMEMBER_MS = 2 * 60 * 60 * 1000;
+      var KEY_PATTERN = /^npk_[a-f0-9]{48}$/;
+      function now() { return new Date().getTime(); }
+      function remembered() {
+        try {
+          var saved = JSON.parse(window.localStorage.getItem(STORE) || 'null');
+          if (saved && KEY_PATTERN.test(saved.key) && typeof saved.when === 'number' && now() - saved.when < REMEMBER_MS && saved.when <= now()) {
+            return saved.key;
+          }
+          window.localStorage.removeItem(STORE); // too old (or unreadable): forgotten
+        } catch (e) { /* no storage: nothing remembered */ }
+        return '';
+      }
+
+      var key = '';
+      var fromLink = /^#k=(npk_[a-f0-9]{48})$/.exec(window.location.hash || '');
+      if (fromLink) {
+        key = fromLink[1];
+        var kept = false;
+        try { window.sessionStorage.setItem(STORE, key); kept = window.sessionStorage.getItem(STORE) === key; } catch (e) { kept = false; }
+        try { window.localStorage.setItem(STORE, JSON.stringify({ key: key, when: now() })); kept = kept || remembered() === key; } catch (e1) { /* sessionStorage alone */ }
+        try {
+          if (kept && window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        } catch (e2) { /* the address keeps the key, which still works */ }
+      } else {
+        try { key = window.sessionStorage.getItem(STORE) || ''; } catch (e3) { key = ''; }
+        if (!KEY_PATTERN.test(key)) { key = remembered(); }
+      }
+
+      if (!key) {
+        show('no-key', true);
+        return;
+      }
+      show('with-key', true);
+      el('address').appendChild(document.createTextNode(ADDRESS));
+      el('key').appendChild(document.createTextNode(key));
+
+      function copy(text, what) {
+        function fallback() {
+          var field = document.createElement('textarea');
+          field.value = text;
+          field.setAttribute('readonly', 'readonly');
+          field.style.position = 'fixed';
+          field.style.left = '-1000px';
+          document.body.appendChild(field);
+          field.select();
+          var done = false;
+          try { field.setSelectionRange(0, text.length); done = document.execCommand('copy'); } catch (e) { done = false; }
+          document.body.removeChild(field);
+          say(done ? 'ok' : 'warn', done ? what + ' copied. Paste it into the shortcut.' : 'Could not copy. Press and hold the text above to copy it.');
+        }
+        if (window.navigator.clipboard && window.navigator.clipboard.writeText) {
+          window.navigator.clipboard.writeText(text).then(function () { say('ok', what + ' copied. Paste it into the shortcut.'); }, fallback);
+        } else {
+          fallback();
+        }
+      }
+      el('copy-address').onclick = function () { copy(ADDRESS, 'Address'); };
+      el('copy-key').onclick = function () { copy(key, 'Key'); };
+
+      // Sends a line that is not a payment: the shop answers "not a payment" when the key is good, and the till then shows
+      // this phone as heard from.
+      el('check').onclick = function () {
+        var button = el('check');
+        button.disabled = true;
+        say('', '');
+        var request = new XMLHttpRequest();
+        request.open('POST', ADDRESS, true);
+        request.setRequestHeader('Content-Type', 'application/json');
+        request.timeout = 20000;
+        function failed() {
+          button.disabled = false;
+          say('warn', 'Could not reach NexaPOS. Check this phone\'s internet connection and try again.');
+        }
+        request.onerror = failed;
+        request.ontimeout = failed;
+        request.onload = function () {
+          button.disabled = false;
+          if (request.status === 200) {
+            say('ok', 'The key works. Your till now shows this phone as heard from.');
+          } else if (request.status === 401) {
+            say('bad', 'This key is not right, or the phone was removed on the till. Set the phone up again on the till.');
+          } else if (request.status === 429) {
+            say('warn', 'Too many messages from this phone in the last hour. Try again later.');
+          } else {
+            say('warn', 'NexaPOS could not check the key just now (error ' + request.status + '). Try again in a little while.');
+          }
+        };
+        request.send(JSON.stringify({ key: key, text: 'NexaPOS key check' }));
+      };
+    }());
+  </script>
+</body>
+</html>

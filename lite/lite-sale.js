@@ -455,11 +455,329 @@
     };
   }
 
+  // ---- refunds (a line-for-line port of RefundService in the app) ----------------------------------------------------
+  // A refund is its own NEW sale with negative amounts, one negative line for each item given back, a stock 'return' for each
+  // item that goes back on the shelf and, for M-Pesa, a negative payment record. The sale refunded is never touched.
+  var MAX_REFUND_REASON = 200;
+  var EXACT = 4503599627370496; // 2^52: below this every sum in a browser's doubles is exact
+  var TOO_BIG = 'This sale is too big for the Lite till to share out to the cent. Refund it in the NexaPOS app.';
+
+  /**
+   * round(a * b / c) for whole, non-negative numbers, exactly as the app works it out (it has big integers; this page has only
+   * doubles) - or null when the answer could not be exact here. A caller then refuses the refund rather than guess a cent.
+   */
+  function roundedShare(a, b, c) {
+    if (!isInt(a) || !isInt(b) || !isInt(c) || a < 0 || b < 0) {
+      return null;
+    }
+    if (c <= 0) {
+      return 0;
+    }
+    var whole = Math.floor(a / c);
+    while (whole * c > a) {
+      whole -= 1;
+    }
+    while ((whole + 1) * c <= a) {
+      whole += 1;
+    }
+    var rest = a - whole * c;
+    var numerator = rest * b * 2 + c;
+    if (whole * b > EXACT || numerator > EXACT) {
+      return null;
+    }
+    var step = 2 * c;
+    var low = Math.floor(numerator / step);
+    while (low * step > numerator) {
+      low -= 1;
+    }
+    while ((low + 1) * step <= numerator) {
+      low += 1;
+    }
+    return whole * b + low;
+  }
+
+  /** The sale's lines with how much of each is already given back (by the shop's refunds AND by refunds waiting on this iPad). */
+  function refundLines(source) {
+    var byId = {};
+    var order = [];
+    var items = source.items || [];
+    var i;
+    for (i = 0; i < items.length; i++) {
+      byId[items[i].id] = { item: items[i], remaining: items[i].quantity };
+      order.push(items[i].id);
+    }
+    var given = source.lines || [];
+    for (i = 0; i < given.length; i++) {
+      if (byId.hasOwnProperty(given[i].itemId)) {
+        byId[given[i].itemId].remaining = byId[given[i].itemId].item.quantity - given[i].refunded;
+      }
+    }
+    return { byId: byId, order: order };
+  }
+
+  /** Why this sale cannot be refunded at all (RefundableSale.whyNot), or null. */
+  function whyNotRefundable(source) {
+    var sale = source.sale;
+    if (sale.saleType === 'refund') {
+      return 'A refund cannot be refunded.';
+    }
+    if (sale.status !== 'paid') {
+      return 'Only a paid sale can be refunded.';
+    }
+    var lines = refundLines(source);
+    for (var i = 0; i < lines.order.length; i++) {
+      if (lines.byId[lines.order[i]].remaining > 0) {
+        return null;
+      }
+    }
+    return 'This sale has already been refunded in full.';
+  }
+
+  /**
+   * The money for a set of choices, worked out exactly as the app records it (RefundService.quote). Pure: nothing is written.
+   * source: what the shop's lite_sale gave, with this iPad's waiting refunds added: {sale, items, lines:[{itemId, quantity,
+   *   refunded}], refunded:{subtotalCents, discountCents, totalCents, cashCents}} (all positive: money that already went back).
+   * choices: [{itemId, quantity, restock}]
+   * -> {ok:true, subtotalCents, discountCents, totalCents, cashCents (null unless the sale was paid partly in cash and partly
+   *    by an M-Pesa prompt)} | {ok:false, message}
+   */
+  function quoteRefund(source, choices) {
+    var blocked = whyNotRefundable(source);
+    if (blocked) {
+      return fail(blocked);
+    }
+    var lines = refundLines(source).byId;
+    var seen = {};
+    var subtotal = 0;
+    var i;
+    for (i = 0; i < choices.length; i++) {
+      var choice = choices[i];
+      var line = lines.hasOwnProperty(choice.itemId) ? lines[choice.itemId] : null;
+      if (!line) {
+        return fail('That item is not part of this sale.');
+      }
+      if (seen.hasOwnProperty(choice.itemId)) {
+        return fail('An item is listed twice.');
+      }
+      seen[choice.itemId] = true;
+      if (!isInt(choice.quantity) || choice.quantity < 1) {
+        return fail('Enter a quantity of 1 or more.');
+      }
+      if (line.remaining < 1) {
+        return fail(line.item.itemName + ' has already been refunded.');
+      }
+      if (choice.quantity > line.remaining) {
+        return fail('Only ' + line.remaining + ' of ' + line.item.itemName + ' can still be refunded.');
+      }
+      subtotal += choice.quantity * line.item.unitPriceCents;
+    }
+    if (!choices.length) {
+      return fail('Choose at least one item to refund.');
+    }
+
+    var sale = source.sale;
+    var before = source.refunded;
+    // The discount is given back in proportion to the goods, in whole cents, so that the refunds of one sale always add up to
+    // exactly what the customer paid (the last one takes the rounding).
+    var discountTarget = roundedShare(sale.discountCents, before.subtotalCents + subtotal, sale.subtotalCents);
+    if (discountTarget === null || subtotal > EXACT) {
+      return fail(TOO_BIG);
+    }
+    var discount = discountTarget - before.discountCents;
+    if (discount < 0) {
+      discount = 0;
+    }
+    if (discount > subtotal) {
+      discount = subtotal;
+    }
+    var total = subtotal - discount;
+    if (total < 1) {
+      return fail('There is nothing to refund on those items.');
+    }
+
+    var cash = null;
+    // a split sale: part in cash, the rest by M-Pesa - a prompt ('paystack') or the shop's own till ('mpesa_manual'); the app's
+    // Sale.isSplitPayment
+    if ((sale.paymentMethod === 'paystack' || sale.paymentMethod === 'mpesa_manual') && sale.cashReceivedCents !== null && sale.cashReceivedCents !== undefined) {
+      var cashTarget = roundedShare(sale.cashReceivedCents, before.totalCents + total, sale.totalCents);
+      if (cashTarget === null) {
+        return fail(TOO_BIG);
+      }
+      var share = cashTarget - before.cashCents;
+      if (share < 0) {
+        share = 0;
+      }
+      if (share > total) {
+        share = total;
+      }
+      cash = share;
+    }
+    return { ok: true, subtotalCents: subtotal, discountCents: discount, totalCents: total, cashCents: cash };
+  }
+
+  /**
+   * Builds the records of a refund (RefundService.refund, minus the password, which the core checks first).
+   * input: {source (as quoteRefund), choices, reason, products: {id: product} (the goods this till knows: stock only goes back for
+   *   a product that still exists), userId (the administrator or manager refunding), deviceId, now(ms), nextRev, randomHex(bytes)}
+   * -> {ok:true, changes, nextRev, receipt} | {ok:false, message}
+   */
+  function buildRefund(input) {
+    var reason = trim(String(input.reason === undefined || input.reason === null ? '' : input.reason).replace(/[\u0000-\u001f\u007f]/g, ' '));
+    if (!reason) {
+      return fail('Enter the reason for the refund.');
+    }
+    if (reason.length > MAX_REFUND_REASON) {
+      return fail('The reason is too long (200 characters at most).');
+    }
+    var checked = quoteRefund(input.source, input.choices || []);
+    if (!checked.ok) {
+      return checked;
+    }
+    var sale = input.source.sale;
+    var original = refundLines(input.source).byId;
+    var products = input.products || {};
+
+    var lines = [];
+    var goesBack = [];
+    var i;
+    for (i = 0; i < input.choices.length; i++) {
+      var choice = input.choices[i];
+      var from = original[choice.itemId].item;
+      var restocked = choice.restock !== false && !!from.productId && products.hasOwnProperty(from.productId);
+      lines.push({
+        productId: from.productId === undefined ? null : from.productId,
+        itemName: from.itemName,
+        quantity: 0 - choice.quantity,
+        unitPriceCents: from.unitPriceCents,
+        // The cost only comes back when the goods do: stock thrown away stays a cost of the shop.
+        costPriceCents: restocked ? from.costPriceCents : 0,
+        lineTotalCents: 0 - choice.quantity * from.unitPriceCents,
+        refundOfItemId: from.id,
+        quantityBack: choice.quantity,
+        restocked: restocked
+      });
+      if (restocked) {
+        goesBack.push({ productId: from.productId, quantity: choice.quantity });
+      }
+    }
+
+    var rev = input.nextRev;
+    var nowMs = input.now();
+    var stamp = isoStamp(nowMs);
+    var changes = [];
+    function row(table, fields) {
+      var payload = {
+        id: uuid(input.randomHex),
+        createdAt: stamp,
+        updatedAt: stamp,
+        deletedAt: null,
+        localRev: rev,
+        createdByDeviceId: input.deviceId,
+        syncState: 'local_only'
+      };
+      for (var key in fields) {
+        if (Object.prototype.hasOwnProperty.call(fields, key)) {
+          payload[key] = fields[key];
+        }
+      }
+      rev += 1;
+      changes.push({ table_name: table, row_id: payload.id, local_rev: payload.localRev, updated_at: payload.updatedAt, payload: payload });
+      return payload;
+    }
+
+    var refundNumber = newSaleNumber(input.deviceId, nowMs, input.randomHex);
+    var customerName = sale.customerName === undefined || sale.customerName === null ? 'Walk-in customer' : sale.customerName;
+    var customerPhone = sale.customerPhone === undefined ? null : sale.customerPhone;
+    var refund = row('sales', {
+      saleNumber: refundNumber,
+      userId: input.userId,
+      customerName: customerName,
+      customerPhone: customerPhone,
+      saleType: 'refund',
+      paymentMethod: sale.paymentMethod,
+      subtotalCents: 0 - checked.subtotalCents,
+      discountCents: 0 - checked.discountCents,
+      totalCents: 0 - checked.totalCents,
+      status: 'paid',
+      cashReceivedCents: checked.cashCents === null ? null : 0 - checked.cashCents,
+      refundOfSaleId: sale.id,
+      refundReason: reason
+    });
+    for (i = 0; i < lines.length; i++) {
+      row('sale_items', {
+        saleId: refund.id,
+        productId: lines[i].productId,
+        itemName: lines[i].itemName,
+        quantity: lines[i].quantity,
+        unitPriceCents: lines[i].unitPriceCents,
+        costPriceCents: lines[i].costPriceCents,
+        lineTotalCents: lines[i].lineTotalCents,
+        refundOfItemId: lines[i].refundOfItemId
+      });
+    }
+    for (i = 0; i < goesBack.length; i++) {
+      row('stock_movements', {
+        productId: goesBack[i].productId,
+        userId: input.userId,
+        movementType: 'return',
+        quantity: goesBack[i].quantity,
+        note: 'Refund ' + refundNumber
+      });
+    }
+    if (sale.paymentMethod !== 'cash') {
+      row('payment_records', {
+        saleId: refund.id,
+        method: sale.paymentMethod,
+        amountCents: 0 - checked.totalCents,
+        referenceNote: 'Refund of ' + sale.saleNumber,
+        status: 'refunded'
+      });
+    }
+
+    var shown = [];
+    for (i = 0; i < lines.length; i++) {
+      shown.push({
+        name: lines[i].itemName,
+        quantity: lines[i].quantityBack,
+        unitPriceCents: lines[i].unitPriceCents,
+        lineTotalCents: lines[i].quantityBack * lines[i].unitPriceCents,
+        restocked: lines[i].restocked
+      });
+    }
+    var receipt = {
+      saleId: refund.id,
+      saleNumber: refundNumber,
+      createdAt: nowMs,
+      customerName: customerName,
+      saleType: 'refund',
+      paymentMethod: sale.paymentMethod,
+      isRefund: true,
+      refundOfSaleId: sale.id,
+      refundOfSaleNumber: sale.saleNumber,
+      reason: reason,
+      lines: shown,
+      // the amounts that went BACK to the customer, written as positive money
+      subtotalCents: checked.subtotalCents,
+      discountCents: checked.discountCents,
+      totalCents: checked.totalCents,
+      cashBackCents: checked.cashCents,
+      referenceNote: null,
+      online: false
+    };
+    return { ok: true, changes: changes, nextRev: rev, receipt: receipt };
+  }
+
   return {
     build: build,
     settle: settle,
     buildExpense: buildExpense,
     deleteExpense: deleteExpense,
+    quoteRefund: quoteRefund,
+    buildRefund: buildRefund,
+    roundedShare: roundedShare,
+    whyNotRefundable: whyNotRefundable,
+    refundLines: refundLines,
+    MAX_REFUND_REASON: MAX_REFUND_REASON,
     dayOf: dayOf,
     priceFor: priceFor,
     newSaleNumber: newSaleNumber,

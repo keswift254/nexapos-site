@@ -42,6 +42,34 @@ test('change since yesterday: the apps\' rule, including the nothing-to-compare 
   assert.deepStrictEqual(p(100, -100), { percent: 200, direction: 'up' }, 'from a loss to a profit');
 });
 
+// ---- who sees the shop's money --------------------------------------------------------------------------------------------
+test('only an admin or a manager sees Sales Today, Net Profit Today, Stock Value and the Last 7 Days; a cashier does not', function () {
+  // The owner, 2026-11-23: "make the cashier user not to be able to see daily sales or profits on the dashboard or stock value".
+  var can = Core.canSeeShopFigures;
+  assert.strictEqual(can({ roleName: 'Admin' }), true);
+  assert.strictEqual(can({ roleName: 'Manager' }), true);
+  assert.strictEqual(can({ roleName: 'Cashier' }), false);
+  assert.strictEqual(can({ roleName: 'Staff' }), false, 'a role the page does not know sees nothing');
+  assert.strictEqual(can({ roleName: 'admin' }), false, 'the names are exact');
+  assert.strictEqual(can({}), false);
+  assert.strictEqual(can(null), false, 'nobody signed in');
+  assert.strictEqual(can(undefined), false);
+});
+
+test('the signed-in cashier, manager and owner of a real joined till get the right answer', function (done) {
+  var roles = { '00000000-0000-4000-8000-000000000001': true, '00000000-0000-4000-8000-000000000002': true, '00000000-0000-4000-8000-000000000003': false };
+  var ids = Object.keys(roles);
+  (function next(i) {
+    if (i === ids.length) { done(); return; }
+    signedInAs(ids[i], function (core) {
+      var user = core.currentUser();
+      assert.ok(user, 'signed in');
+      assert.strictEqual(Core.canSeeShopFigures(user), roles[ids[i]], user.roleName);
+      next(i + 1);
+    });
+  }(0));
+});
+
 // ---- the periods ------------------------------------------------------------------------------------------------------
 test('the last 7 days end with today, as 8 edges: local midnights as UTC instants and as plain dates', function () {
   var p = Core.dashboardPeriods(NOW, 7);
@@ -154,6 +182,31 @@ function till(answer, done) {
   });
 }
 
+/** A joined till with one person, of the role given, signed in. */
+function signedInAs(roleId, done) {
+  var http = function (request, cb) {
+    var action = /action=([a-z_]+)/.exec(request.url)[1];
+    var result = { status: 200, body: { success: true } };
+    if (action === 'register_device') { result = { status: 201, body: { success: true, api_key: 'key-1' } }; }
+    if (action === 'lite_catalog') {
+      var body = catalogBody();
+      body.users[0].roleId = roleId;
+      result = { status: 200, body: body };
+    }
+    setImmediate(function () { cb(null, { status: result.status, text: JSON.stringify(result.body) }); });
+  };
+  var seed = 7;
+  var core = Core.create({ baseUrl: BASE, http: http, storage: fakeStorage(), bcrypt: bcrypt, sale: Sale, now: function () { return NOW; },
+    randomHex: function (n) { var s = ''; while (s.length < n * 2) { seed = (seed * 1103515245 + 12345) % 2147483648; s += ('00000000' + seed.toString(16)).slice(-8); } return s.slice(0, n * 2); } });
+  core.join('INV', 'Till', function (error) {
+    assert.ifError(error);
+    core.login('cash', 'Passw0rd!', function (loginError) {
+      assert.ifError(loginError);
+      done(core);
+    });
+  });
+}
+
 test('the dashboard asks for the 7 local days, exactly, with this device\'s key only', function (done) {
   till(function () { return { status: 200, body: { success: true, days: days() } }; }, function (t) {
     t.core.loadDashboard(function (error) {
@@ -168,6 +221,19 @@ test('the dashboard asks for the 7 local days, exactly, with this device\'s key 
       assert.strictEqual(parts.bounds, expected.bounds.join(','));
       assert.strictEqual(parts.dates, expected.dates.join(','));
       assert.strictEqual(parts.bounds.split(',').length, 8);
+      done();
+    });
+  });
+});
+
+test('what went back is read for each day (the sales figure is already net of it), and missing means none', function (done) {
+  till(function () { return { status: 200, body: { success: true, days: days({ 6: { refundsCents: 4500 }, 5: { refundsCents: 'x' } }) } }; }, function (t) {
+    t.core.loadDashboard(function (error, d) {
+      assert.ifError(error);
+      assert.strictEqual(d.today.refundsCents, 4500);
+      assert.strictEqual(d.yesterday.refundsCents, 0, 'not a whole number: ignored');
+      assert.strictEqual(d.last7[0].refundsCents, 0, 'a day with no refunds figure');
+      assert.strictEqual(d.today.salesTotalCents, 7000, 'left as the server sent it: already net');
       done();
     });
   });

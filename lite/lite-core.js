@@ -32,6 +32,148 @@
     '00000000-0000-4000-8000-000000000003': 'Cashier'
   };
 
+  // ---- bytes, for quick sign in (WebAuthn hands everything over as bytes) ---------------------------------------------------
+  function bytesToB64url(bytes) {
+    var text = '';
+    for (var i = 0; i < bytes.length; i++) {
+      text += String.fromCharCode(bytes[i]);
+    }
+    return btoaSafe(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function b64urlToBytes(text) {
+    var b64 = String(text).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) {
+      b64 += '=';
+    }
+    var raw = atobSafe(b64);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) {
+      out[i] = raw.charCodeAt(i);
+    }
+    return out;
+  }
+
+  // base64 by hand: the same everywhere (old Safari, the tests), with nothing to look up
+  var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  function btoaSafe(binary) {
+    var out = '';
+    for (var i = 0; i < binary.length; i += 3) {
+      var a = binary.charCodeAt(i);
+      var b = i + 1 < binary.length ? binary.charCodeAt(i + 1) : -1;
+      var c = i + 2 < binary.length ? binary.charCodeAt(i + 2) : -1;
+      out += B64.charAt(a >> 2) + B64.charAt(((a & 3) << 4) | (b < 0 ? 0 : b >> 4));
+      out += b < 0 ? '=' : B64.charAt(((b & 15) << 2) | (c < 0 ? 0 : c >> 6));
+      out += c < 0 ? '=' : B64.charAt(c & 63);
+    }
+    return out;
+  }
+  function atobSafe(b64) {
+    var clean = String(b64).replace(/=+$/, '');
+    var out = '';
+    var bits = 0;
+    var value = 0;
+    for (var i = 0; i < clean.length; i++) {
+      var index = B64.indexOf(clean.charAt(i));
+      if (index < 0) { continue; }
+      value = (value << 6) | index;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out += String.fromCharCode((value >> bits) & 255);
+      }
+    }
+    return out;
+  }
+
+  /** A site name (always plain ASCII) as bytes. */
+  function asciiBytes(text) {
+    var out = new Uint8Array(text.length);
+    for (var i = 0; i < text.length; i++) {
+      out[i] = text.charCodeAt(i) & 0x7f;
+    }
+    return out;
+  }
+
+  /** UTF-8 bytes to text (the browser's client data is UTF-8 JSON). Null when they are not valid UTF-8. */
+  function utf8Text(bytes) {
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i];
+      var code;
+      var extra;
+      if (b < 0x80) { code = b; extra = 0; }
+      else if ((b & 0xe0) === 0xc0) { code = b & 0x1f; extra = 1; }
+      else if ((b & 0xf0) === 0xe0) { code = b & 0x0f; extra = 2; }
+      else if ((b & 0xf8) === 0xf0) { code = b & 0x07; extra = 3; }
+      else { return null; }
+      for (var k = 0; k < extra; k++) {
+        i += 1;
+        if (i >= bytes.length || (bytes[i] & 0xc0) !== 0x80) { return null; }
+        code = (code << 6) | (bytes[i] & 0x3f);
+      }
+      if (code > 0xffff) {
+        code -= 0x10000;
+        out += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
+      } else {
+        out += String.fromCharCode(code);
+      }
+    }
+    return out;
+  }
+
+  function concatBytes(a, b) {
+    var out = new Uint8Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+
+  function sameBytes(a, b) {
+    if (!a || !b || a.length !== b.length) {
+      return false;
+    }
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff === 0;
+  }
+
+  /**
+   * An ECDSA P-256 signature as a device sends it (ASN.1 DER: a sequence of two integers) as the browser's check wants it:
+   * r and s, 32 bytes each, side by side. Null when it is not a well-formed signature.
+   */
+  function derToRawSignature(der) {
+    var at = 0;
+    function length() {
+      if (at >= der.length) { return -1; }
+      var first = der[at++];
+      if (first < 0x80) { return first; }
+      if (first === 0x81 && at < der.length) { return der[at++]; }
+      return -1;
+    }
+    function integer() {
+      if (der[at++] !== 0x02) { return null; }
+      var size = length();
+      if (size < 1 || at + size > der.length) { return null; }
+      var value = der.subarray(at, at + size);
+      at += size;
+      while (value.length > 32 && value[0] === 0) { value = value.subarray(1); }
+      if (value.length > 32) { return null; }
+      var out = new Uint8Array(32);
+      out.set(value, 32 - value.length);
+      return out;
+    }
+    if (!der || der.length < 8 || der[at++] !== 0x30) { return null; }
+    var total = length();
+    if (total < 0 || at + total !== der.length) { return null; }
+    var r = integer();
+    var s = r ? integer() : null;
+    if (!r || !s || at !== der.length) { return null; }
+    return concatBytes(r, s);
+  }
+
   /** Everything a result callback needs to tell the person what went wrong, in plain words. */
   function problem(code, message) {
     var error = new Error(message);
@@ -328,7 +470,7 @@
       });
     }
 
-    function failedAttempt(cb) {
+    function failedAttempt(cb, wrongText) {
       state.failedLogins += 1;
       if (state.failedLogins >= MAX_FAILED_LOGINS) {
         state.failedLogins = 0;
@@ -338,11 +480,227 @@
         return;
       }
       save();
-      cb(problem('credentials', 'Wrong username or password.'));
+      cb(problem('credentials', wrongText || 'Wrong username or password.'));
     }
 
     function logout() {
       session = null;
+    }
+
+    // ---- quick sign in: Face ID, Touch ID, a fingerprint or the device's passcode ------------------------------------------
+    // One person per device. Turning it on creates a passkey that lives in the device's secure hardware and can only be used
+    // after their face, finger or passcode; signing in asks for it and checks the answer against the public key kept here
+    // (nothing secret is kept). It is a quicker door to an account already on this device, never a replacement for the
+    // password anywhere else. options.passkeys is the browser's WebAuthn and WebCrypto, made into callbacks by the page.
+    var QUICK_TIMEOUT_MS = 60000;
+    var quickBusy = false;
+
+    function passkeysSupported() {
+      try {
+        return !!(options.passkeys && options.passkeys.supported());
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function catalogUser(id) {
+      var users = state.catalog ? state.catalog.users : [];
+      for (var i = 0; i < users.length; i++) {
+        if (users[i].id === id) {
+          return users[i];
+        }
+      }
+      return null;
+    }
+
+    /** {supported, setUpFor: {id, name} | null, mine: whether it is set up for whoever is logged in}. */
+    function quickSignInStatus() {
+      var quick = state.quick || null;
+      var who = quick ? catalogUser(quick.userId) : null;
+      return {
+        supported: passkeysSupported(),
+        setUpFor: quick ? { id: quick.userId, name: who ? who.name : 'someone no longer in the shop' } : null,
+        mine: !!(quick && session && quick.userId === session.id)
+      };
+    }
+
+    function cancelledByPerson(error) {
+      var name = error && error.name ? String(error.name) : String(error || '');
+      return name.indexOf('NotAllowedError') >= 0 || name.indexOf('AbortError') >= 0;
+    }
+
+    /** Turns quick sign in on for whoever is logged in (the device asks for their face, finger or passcode once). cb(error). */
+    function setUpQuickSignIn(cb) {
+      if (!session) {
+        cb(problem('input', 'Log in first.'));
+        return;
+      }
+      if (!passkeysSupported()) {
+        cb(problem('unsupported', 'This device\'s browser cannot do Face ID, fingerprint or passcode sign in.'));
+        return;
+      }
+      if (quickBusy) {
+        cb(problem('busy', 'Wait a moment.'));
+        return;
+      }
+      var pk = options.passkeys;
+      var who = session;
+      quickBusy = true;
+      pk.create({
+        challenge: pk.randomBytes(32),
+        rp: { name: 'NexaPOS Lite', id: pk.rpId },
+        user: { id: pk.randomBytes(16), name: 'nexapos-lite-quick-sign-in', displayName: 'NexaPOS Lite quick sign in' },
+        // ES256 only: what every phone, iPad and recent Windows PC offers.
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+        timeout: QUICK_TIMEOUT_MS,
+        attestation: 'none'
+      }, function (error, made) {
+        quickBusy = false;
+        if (error) {
+          cb(cancelledByPerson(error)
+            ? problem('cancelled', 'Quick sign in was not turned on. If no Face ID, fingerprint or passcode question appeared, check one is turned on in the device\'s settings.')
+            : problem('unsupported', 'This device could not set up quick sign in. Use your password instead.'));
+          return;
+        }
+        if (!made || !made.rawId || !made.publicKey || made.algorithm !== -7) {
+          cb(problem('unsupported', 'This browser cannot set up quick sign in (an iPhone or iPad needs iOS 16 or newer). Use your password instead.'));
+          return;
+        }
+        if (session !== who) {
+          cb(problem('logged_out', 'You were logged out. Log in and turn it on again.'));
+          return;
+        }
+        state.quick = { userId: who.id, credentialId: bytesToB64url(made.rawId), publicKey: bytesToB64url(made.publicKey), rpId: pk.rpId };
+        save();
+        cb(null);
+      });
+    }
+
+    /** Turns it off: only the person it is set up for, or an administrator. */
+    function turnOffQuickSignIn() {
+      if (!state.quick) {
+        return { ok: true };
+      }
+      if (!session || (session.id !== state.quick.userId && session.roleName !== 'Admin')) {
+        return { ok: false, message: 'Only the person it is set up for, or an administrator, can turn it off.' };
+      }
+      state.quick = null;
+      save();
+      return { ok: true };
+    }
+
+    /**
+     * Checks the device's answer completely: the passkey set up here, for this site and page, to the question just asked,
+     * unlocked by the person (user verified), and signed by the key kept at set-up. cb(true) or cb(false, why).
+     */
+    function checkAssertion(quick, challenge, answer, cb) {
+      var pk = options.passkeys;
+      if (!answer || !answer.authenticatorData || !answer.clientDataJSON || !answer.signature || !sameBytes(answer.rawId, b64urlToBytes(quick.credentialId))) {
+        cb(false, 'another passkey');
+        return;
+      }
+      var text = utf8Text(answer.clientDataJSON);
+      var client = null;
+      try {
+        client = text === null ? null : JSON.parse(text);
+      } catch (e) {
+        client = null;
+      }
+      if (!client || client.type !== 'webauthn.get' || client.challenge !== bytesToB64url(challenge) || client.origin !== pk.origin) {
+        cb(false, 'client data');
+        return;
+      }
+      var data = answer.authenticatorData;
+      // flags: 0x01 the person was present, 0x04 the person was verified (face, finger or passcode)
+      if (data.length < 37 || (data[32] & 0x01) === 0 || (data[32] & 0x04) === 0) {
+        cb(false, 'flags');
+        return;
+      }
+      var raw = derToRawSignature(answer.signature);
+      if (!raw) {
+        cb(false, 'signature form');
+        return;
+      }
+      pk.sha256(asciiBytes(quick.rpId), function (error, rpHash) {
+        if (error || !sameBytes(rpHash, data.subarray(0, 32))) {
+          cb(false, 'site');
+          return;
+        }
+        pk.sha256(answer.clientDataJSON, function (error2, clientHash) {
+          if (error2 || !clientHash) {
+            cb(false, 'hash');
+            return;
+          }
+          pk.verify(b64urlToBytes(quick.publicKey), concatBytes(data, clientHash), raw, function (error3, ok) {
+            cb(!error3 && ok === true, error3 ? 'verify failed' : 'signature');
+          });
+        });
+      });
+    }
+
+    /** Signs in the person quick sign in is set up for, after the device's face, finger or passcode check. cb(error, session). */
+    function quickLogin(cb) {
+      var quick = state.quick;
+      if (!quick) {
+        cb(problem('not_set_up', 'Quick sign in is not set up on this device.'));
+        return;
+      }
+      if (!passkeysSupported()) {
+        cb(problem('unsupported', 'This device\'s browser cannot do Face ID, fingerprint or passcode sign in.'));
+        return;
+      }
+      if (!state.catalog) {
+        cb(problem('input', 'The shop\'s cashiers have not been loaded yet. Connect to the internet and refresh.'));
+        return;
+      }
+      if (quickBusy) {
+        cb(problem('busy', 'Wait a moment.'));
+        return;
+      }
+      var pk = options.passkeys;
+      var challenge = pk.randomBytes(32);
+      quickBusy = true;
+      pk.get({
+        challenge: challenge,
+        rpId: quick.rpId,
+        allowCredentials: [{ type: 'public-key', id: b64urlToBytes(quick.credentialId), transports: ['internal'] }],
+        userVerification: 'required',
+        timeout: QUICK_TIMEOUT_MS
+      }, function (error, answer) {
+        if (error || !answer) {
+          quickBusy = false;
+          cb(problem('cancelled', 'Quick sign in did not finish. Try again, or use your password.'));
+          return;
+        }
+        checkAssertion(quick, challenge, answer, function (ok) {
+          quickBusy = false;
+          if (!ok || state.quick !== quick) {
+            cb(problem('not_verified', 'This device could not prove it is you. Use your password.'));
+            return;
+          }
+          var found = catalogUser(quick.userId);
+          if (!found) {
+            cb(problem('disabled', 'This person is no longer in the shop. Use a username and password.'));
+            return;
+          }
+          if (found.status !== 'active') {
+            cb(problem('disabled', 'This account is not active. Ask the owner.'));
+            return;
+          }
+          state.failedLogins = 0;
+          state.lockedUntil = 0;
+          save();
+          session = {
+            id: found.id,
+            name: found.name,
+            username: found.username,
+            roleId: found.roleId,
+            roleName: ROLE_NAMES[found.roleId] || 'Staff'
+          };
+          cb(null, session);
+        });
+      });
     }
 
     /**
@@ -444,6 +802,24 @@
       return { state: 'ok', ok: true, daysLeft: days, message: days === null ? 'Licence active.' : 'Licence active, ' + days + ' day' + (days === 1 ? '' : 's') + ' left.' };
     }
 
+    /** The shop's licence in full (Settings > My License): status words, whether it ends, when, and how many days are left. */
+    function licenseDetails() {
+      var summary = licenseStatus();
+      var license = state.catalog ? state.catalog.license : null;
+      var until = license && license.valid_until ? parseServerTime(license.valid_until) : null;
+      return {
+        state: summary.state,
+        ok: summary.ok,
+        message: summary.message,
+        neverExpires: !!(license && license.never_expires === true),
+        validUntil: until,
+        daysLeft: summary.daysLeft === undefined ? null : summary.daysLeft,
+        // What is left when read now, by the shop's time (this iPad's clock corrected by how far it was from the shop's when the
+        // shop data was last fetched), in milliseconds; null when the licence has no end.
+        remainingMs: until === null ? null : until - (now() + (state.serverOffset || 0))
+      };
+    }
+
     // ---- selling -----------------------------------------------------------------------------------------
     function productMap() {
       var map = {};
@@ -530,10 +906,200 @@
       return { ok: true, receipt: built.receipt };
     }
 
+    // ---- "M-Pesa Till/Paybill": a sale paid to the shop's own till or paybill ---------------------------------------------------
+    // The customer pays the shop's till or paybill from their phone; Safaricom's message reaches the shop phone, which passes it on
+    // to the shop (see the till phone, below). The sale is built first (so it has its id, number and total), the shop is asked to
+    // USE the code on that sale - it says no when no such payment arrived, when it was for another amount, or when the code was
+    // already used on another sale - and only then is the sale saved, as the apps' "M-Pesa (Manual)" sale with the code as its
+    // reference. So it needs the internet, and one payment can never pay for two sales.
+    var tillSelling = false;
+
+    /** An M-Pesa code as typed ("ukh3 r3nl-tu") in its stored form, or null when it cannot be one. The shop's own rule. */
+    function mpesaCode(typed) {
+      var code = String(typed === undefined || typed === null ? '' : typed).replace(/[\s\-]+/g, '').toUpperCase();
+      return /^[A-Z0-9]{8,12}$/.test(code) && /[A-Z]/.test(code) && /[0-9]/.test(code) ? code : null;
+    }
+
+    /**
+     * request: {cart, saleType, discountCents, code, acceptAmount}
+     * -> cb({ok:true, receipt, payment}) |
+     *    cb({ok:false, code, message, paidCents?, totalCents?}) with code one of: input, offline, not_received, used, short,
+     *    amount_differs (paid MORE than the total: the cashier may go ahead with acceptAmount and give the rest back in cash),
+     *    amount_unknown (the message's amount could not be read: acceptAmount after checking the phone), unavailable, busy,
+     *    logged_out, server.
+     */
+    function sellTill(request, cb) {
+      var blocked = sellBlock();
+      if (blocked) {
+        cb({ ok: false, code: 'input', message: blocked });
+        return;
+      }
+      if (tillSelling) {
+        cb({ ok: false, code: 'busy', message: 'The M-Pesa payment is being checked. Wait a moment.' });
+        return;
+      }
+      var code = mpesaCode(request && request.code);
+      if (!code) {
+        cb({ ok: false, code: 'input', message: 'Pick the customer\'s payment, or type its M-Pesa code (the 10 letters and numbers at the start of the message).' });
+        return;
+      }
+      var startRev = state.nextRev;
+      var built = options.sale.build({
+        cart: request.cart,
+        products: productMap(),
+        saleType: request.saleType,
+        paymentMethod: 'mpesa_manual',
+        discountCents: request.discountCents,
+        customerName: '',
+        customerPhone: '',
+        referenceNote: code,
+        cashReceivedCents: null,
+        userId: session.id,
+        deviceId: state.device.id,
+        now: now,
+        nextRev: startRev,
+        randomHex: random
+      });
+      if (!built.ok) {
+        cb({ ok: false, code: 'input', message: built.message });
+        return;
+      }
+      var receipt = built.receipt;
+      var who = session;
+      tillSelling = true;
+      call('POST', 'payment_inbox_claim', {
+        code: code,
+        sale_id: receipt.saleId,
+        sale_number: receipt.saleNumber,
+        amount_cents: receipt.totalCents,
+        require_message: true,
+        accept_amount: request.acceptAmount === true
+      }, function (error, body, status) {
+        tillSelling = false;
+        if (error) {
+          cb(tillSaleRefusal(error, body, status, receipt.totalCents));
+          return;
+        }
+        var payment = body && body.payment && typeof body.payment === 'object' ? tillPayment(body.payment) : null;
+        if (!body || body.success !== true || !payment || payment.code !== code) {
+          // The answer cannot be read: the code may or may not be held for this sale, so it is given back and nothing is saved.
+          releaseTillCode(code, receipt.saleId);
+          cb({ ok: false, code: 'server', message: 'The shop server sent an answer this till cannot read. Nothing was sold. Try again.' });
+          return;
+        }
+        if (session !== who || sellBlock()) {
+          // Logged out (or the till was stopped) while the shop was answering: nothing is sold, and the code is free again.
+          releaseTillCode(code, receipt.saleId);
+          cb({ ok: false, code: 'logged_out', message: 'You were logged out before the payment was checked. Nothing was sold. Log in and try again.' });
+          return;
+        }
+        // Anything saved meanwhile took revisions: this sale's records move up to the next free ones (ids and times stay).
+        var shift = state.nextRev - startRev;
+        if (shift !== 0) {
+          for (var i = 0; i < built.changes.length; i++) {
+            built.changes[i].local_rev += shift;
+            built.changes[i].payload.localRev += shift;
+          }
+          built.nextRev += shift;
+        }
+        receipt.cashierName = session.name;
+        commitBuilt(built, null);
+        cb({ ok: true, receipt: receipt, payment: payment });
+      });
+    }
+
+    /** What the shop said no to, in the till's words. */
+    function tillSaleRefusal(error, body, status, totalCents) {
+      var reason = body && typeof body.reason === 'string' ? body.reason : '';
+      if (error.code === 'offline') {
+        return { ok: false, code: 'offline', message: 'Checking an M-Pesa payment needs the internet. Nothing was sold. Try again when this iPad is online, or take Cash.' };
+      }
+      if (reason === 'not_received') {
+        return { ok: false, code: 'not_received', message: 'No M-Pesa payment with this code has reached the shop yet. Check the code, or wait a few seconds after the customer pays and try again.' };
+      }
+      if (reason === 'amount_differs' && body && whole(body.amount_cents)) {
+        var paid = body.amount_cents;
+        if (paid < totalCents) {
+          return { ok: false, code: 'short', paidCents: paid, totalCents: totalCents, message: 'The customer paid ' + currencyCode() + ' ' + formatCents(paid) + ', which is ' + currencyCode() + ' ' + formatCents(totalCents - paid) + ' less than this sale (' + currencyCode() + ' ' + formatCents(totalCents) + '). Use a payment that covers the whole sale.' };
+        }
+        return { ok: false, code: 'amount_differs', paidCents: paid, totalCents: totalCents, message: 'The customer paid ' + currencyCode() + ' ' + formatCents(paid) + ' for a sale of ' + currencyCode() + ' ' + formatCents(totalCents) + '.' };
+      }
+      if (reason === 'amount_unknown') {
+        return { ok: false, code: 'amount_unknown', totalCents: totalCents, message: 'The amount in this M-Pesa message could not be read.' };
+      }
+      if (status === 404 && !reason) {
+        return { ok: false, code: 'unavailable', message: 'The shop server cannot check M-Pesa payments yet. Ask the owner to update it.' };
+      }
+      if ((error.code === 'unauthorized' || error.code === 'forbidden') && !reason) {
+        return { ok: false, code: error.code, message: 'This iPad is not allowed to do this. Ask the owner to check Connected devices.' };
+      }
+      // anything else (a code already used on another sale: 'used') in the shop's own words
+      return { ok: false, code: reason || error.code || 'server', message: error.message };
+    }
+
+    /** Gives a code back to the shop (best effort: a code that stays held for a sale that does not exist only blocks that code). */
+    function releaseTillCode(code, saleId) {
+      call('POST', 'payment_inbox_release', { code: code, sale_id: saleId }, function () {});
+    }
+
+    /** The payments the shop received in the last [hours] hours that no sale has used yet, newest first: cb(error) or cb(null, list). */
+    function unusedTillPayments(hours, cb) {
+      tillPayments(hours, function (error, result) {
+        if (error) {
+          cb(error);
+          return;
+        }
+        var unused = [];
+        for (var i = 0; i < result.payments.length; i++) {
+          if (result.payments[i].messageReceived && !result.payments[i].used && result.payments[i].archivedAt === null) {
+            unused.push(result.payments[i]);
+          }
+        }
+        cb(null, unused, result.phones);
+      });
+    }
+
+    /**
+     * Archives a payment that arrived ([archived] true: it is no longer suggested at checkout, on any till of the shop) or
+     * suggests it again (false). It stays in the shop's list of payments received, and its code can still be typed.
+     * cb(error) or cb(null, payment).
+     */
+    function archiveTillPayment(code, archived, cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if (!session) {
+        cb(problem('input', 'Log in first.'));
+        return;
+      }
+      var clean = mpesaCode(code);
+      if (!clean) {
+        cb(problem('input', 'That is not an M-Pesa code.'));
+        return;
+      }
+      call('POST', 'payment_inbox_archive', { code: clean, archived: archived !== false }, function (error, body, status) {
+        if (error) {
+          if (body && body.reason === 'not_found') {
+            cb(problem('not_found', 'The shop has no M-Pesa payment with this code.'));
+            return;
+          }
+          cb(tillPhoneFailure(error, body, status));
+          return;
+        }
+        var payment = body && body.payment && typeof body.payment === 'object' ? tillPayment(body.payment) : null;
+        if (!payment || payment.code !== clean) {
+          cb(problem('server', 'The shop server sent an answer this till cannot read. Try again.'));
+          return;
+        }
+        cb(null, payment);
+      });
+    }
+
     /** Saves a built sale on the iPad (outbox, history, stock). Shared by cash/M-Pesa sales and online ones. */
-    function commitBuilt(built, onlineInfo) {
+    function commitBuilt(built, onlineInfo, kind) {
       state.nextRev = built.nextRev;
-      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: 'sale' });
+      state.outbox.push({ id: built.receipt.saleId, changes: built.changes, receipt: built.receipt, createdAt: now(), attempts: 0, status: 'pending', error: null, kind: kind || 'sale' });
       state.history.unshift({ receipt: built.receipt, status: 'queued', error: null, payment: onlineInfo ? 'awaiting' : null });
       if (state.history.length > 100) {
         state.history.length = 100;
@@ -557,6 +1123,637 @@
       }
     }
 
+    // ---- support: the apps' Support conversations ------------------------------------------------------------------------------
+    // The shop's own support endpoints (the same ones the apps use): every call is signed with this device's key and only ever
+    // sees THIS shop's tickets. Photos travel as base64 (the page shrinks them first). Nothing here is kept on the iPad but the
+    // count of replies waiting, which the Support button shows.
+    var supportWaiting = 0;
+    var MAX_SUPPORT_TEXT = 8000;
+    var MAX_SUPPORT_PHOTOS = 4;
+
+    function supportTicket(raw) {
+      return {
+        id: whole(raw.id) ? raw.id : 0,
+        subject: typeof raw.subject === 'string' ? raw.subject : '',
+        status: raw.status === 'pending' || raw.status === 'closed' ? raw.status : 'open',
+        email: typeof raw.customer_email === 'string' ? raw.customer_email : '',
+        createdAt: typeof raw.created_at === 'string' ? raw.created_at : '',
+        updatedAt: typeof raw.updated_at === 'string' ? raw.updated_at : '',
+        lastMessageId: whole(Number(raw.last_support_message_id)) && Number(raw.last_support_message_id) > 0 ? Number(raw.last_support_message_id) : 0
+      };
+    }
+
+    function supportMessage(raw) {
+      var reactions = [];
+      var attachments = [];
+      var i;
+      if (isList(raw.reactions)) {
+        for (i = 0; i < raw.reactions.length; i++) {
+          if (raw.reactions[i] && typeof raw.reactions[i].emoji === 'string') {
+            reactions.push({ sender: raw.reactions[i].sender === 'support' ? 'support' : 'customer', emoji: raw.reactions[i].emoji });
+          }
+        }
+      }
+      if (isList(raw.attachments)) {
+        for (i = 0; i < raw.attachments.length; i++) {
+          if (raw.attachments[i] && whole(raw.attachments[i].id)) {
+            attachments.push({ id: raw.attachments[i].id, mime: String(raw.attachments[i].mime_type || '') });
+          }
+        }
+      }
+      var quote = raw.reply_to && typeof raw.reply_to === 'object' && whole(raw.reply_to.id)
+        ? { id: raw.reply_to.id, sender: raw.reply_to.sender === 'support' ? 'support' : 'customer', snippet: String(raw.reply_to.snippet || '') }
+        : null;
+      return {
+        id: whole(raw.id) ? raw.id : 0,
+        sender: raw.sender === 'support' ? 'support' : 'customer',
+        body: typeof raw.body === 'string' ? raw.body : '',
+        createdAt: typeof raw.created_at === 'string' ? raw.created_at : '',
+        replyTo: quote,
+        reactions: reactions,
+        attachments: attachments
+      };
+    }
+
+    function supportFailure(error, status, cb, what) {
+      if (error.code === 'unauthorized' || error.code === 'forbidden') {
+        cb(problem(error.code, 'This iPad is not allowed to use support. Ask the owner to check Connected devices.'));
+      } else if (status === 404 && what === 'list') {
+        cb(problem('unavailable', 'The shop server cannot do support chat yet. Ask the owner to update it.'));
+      } else {
+        cb(error);
+      }
+    }
+
+    function supportSignedIn() {
+      return !!(state.device && state.device.apiKey && state.joined);
+    }
+
+    /** The shop's tickets, newest activity first: cb(error) or cb(null, [{id, subject, status, email, createdAt, updatedAt}]). */
+    function supportList(cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      call('GET', 'support_list', null, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'list');
+          return;
+        }
+        if (!body || !isList(body.tickets)) {
+          cb(problem('server', 'The shop server sent a support list this till cannot read. Try again later.'));
+          return;
+        }
+        var tickets = [];
+        var waiting = 0;
+        for (var i = 0; i < body.tickets.length; i++) {
+          var ticket = supportTicket(body.tickets[i] || {});
+          if (ticket.id > 0) {
+            tickets.push(ticket);
+            if (ticket.status === 'pending') {
+              waiting += 1;
+            }
+          }
+        }
+        supportWaiting = waiting;
+        cb(null, tickets);
+      });
+    }
+
+    /** One conversation, oldest message first: cb(error) or cb(null, {ticket, messages}). */
+    function supportThread(ticketId, cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      call('GET', 'support_thread&ticket_id=' + encodeURIComponent(ticketId), null, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'thread');
+          return;
+        }
+        if (!body || !body.ticket || !isList(body.messages)) {
+          cb(problem('server', 'The shop server sent a conversation this till cannot read. Try again later.'));
+          return;
+        }
+        var messages = [];
+        for (var i = 0; i < body.messages.length; i++) {
+          var message = supportMessage(body.messages[i] || {});
+          if (message.id > 0) {
+            messages.push(message);
+          }
+        }
+        cb(null, { ticket: supportTicket(body.ticket), messages: messages });
+      });
+    }
+
+    function photoList(photos) {
+      var out = [];
+      for (var i = 0; i < photos.length; i++) {
+        out.push({ data: photos[i] });
+      }
+      return out;
+    }
+
+    function supportEmailOk(text) {
+      return text.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+    }
+
+    /**
+     * Opens a ticket. request: {subject, message, email, photos: [base64 text, ...]} -> cb(error) or cb(null, ticketId).
+     * The same checks and words as the server's (and the apps').
+     */
+    function supportOpen(request, cb) {
+      var subject = String(request.subject || '').replace(/^\s+|\s+$/g, '');
+      var message = String(request.message || '').replace(/^\s+|\s+$/g, '');
+      var email = String(request.email || '').replace(/^\s+|\s+$/g, '');
+      var photos = request.photos || [];
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if (subject.length < 3 || subject.length > 160) {
+        cb(problem('input', 'Subject must be between 3 and 160 characters.'));
+        return;
+      }
+      if ((message === '' && !photos.length) || message.length > MAX_SUPPORT_TEXT) {
+        cb(problem('input', 'Describe the issue in 1 to 8000 characters.'));
+        return;
+      }
+      if (!supportEmailOk(email)) {
+        cb(problem('input', 'Enter a valid email address, so we can send you a copy of every reply.'));
+        return;
+      }
+      if (photos.length > MAX_SUPPORT_PHOTOS) {
+        cb(problem('input', 'Attach up to 4 photos per message.'));
+        return;
+      }
+      call('POST', 'support_open', { subject: subject, message: message, email: email, attachments: photoList(photos) }, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'open');
+          return;
+        }
+        if (!body || !whole(body.ticket_id)) {
+          cb(problem('server', 'The shop server did not confirm the ticket. Look in your tickets before sending it again.'));
+          return;
+        }
+        cb(null, body.ticket_id);
+      });
+    }
+
+    /** Sends a message in a ticket (a closed ticket is reopened by it). request: {ticketId, message, photos, replyToId} -> cb(error) or cb(null, messageId). */
+    function supportReply(request, cb) {
+      var message = String(request.message || '').replace(/^\s+|\s+$/g, '');
+      var photos = request.photos || [];
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      if ((message === '' && !photos.length) || message.length > MAX_SUPPORT_TEXT) {
+        cb(problem('input', 'Message must be between 1 and 8000 characters.'));
+        return;
+      }
+      if (photos.length > MAX_SUPPORT_PHOTOS) {
+        cb(problem('input', 'Attach up to 4 photos per message.'));
+        return;
+      }
+      var body = { ticket_id: request.ticketId, message: message, attachments: photoList(photos) };
+      if (request.replyToId) {
+        body.reply_to_id = request.replyToId;
+      }
+      call('POST', 'support_reply', body, function (error, response, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'reply');
+          return;
+        }
+        cb(null, response && whole(response.message_id) ? response.message_id : 0);
+      });
+    }
+
+    /** Tells support that the replies up to this one have been read (the shop sees them as read). Quiet: a failure is simply tried again later. */
+    function supportMarkRead(ticketId, throughMessageId, cb) {
+      call('POST', 'support_mark_read', { ticket_id: ticketId, through_message_id: throughMessageId }, function (error) {
+        (cb || function () {})(error || null);
+      });
+    }
+
+    /** A reaction (one of SUPPORT_REACTIONS) on a message; emoji null or '' takes the shop's reaction off. */
+    function supportReact(ticketId, messageId, emoji, cb) {
+      call('POST', 'support_react', { ticket_id: ticketId, message_id: messageId, emoji: emoji || '' }, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'react');
+          return;
+        }
+        cb(null);
+      });
+    }
+
+    function supportClose(ticketId, cb) {
+      call('POST', 'support_close', { ticket_id: ticketId }, function (error, body, status) {
+        if (error) {
+          supportFailure(error, status, cb, 'close');
+          return;
+        }
+        cb(null);
+      });
+    }
+
+    /** What the page needs to fetch a photo of a ticket (it is private: the device key goes in the request). */
+    function supportPhotoRequest(attachmentId) {
+      if (!supportSignedIn() || !whole(attachmentId)) {
+        return null;
+      }
+      return { url: baseUrl + '?action=support_attachment&id=' + encodeURIComponent(attachmentId), headers: { 'Authorization': 'Bearer ' + state.device.apiKey } };
+    }
+
+    // ---- "Manual Till/Paybill": the phone that passes the shop's M-Pesa payment messages on -------------------------------------
+    // Customers pay the shop's own till or paybill. The phone that gets Safaricom's "payment received" SMS passes each one on to the
+    // shop (an iPhone through a Shortcut, an Android phone through the app), and every till can then see what really arrived.
+    // Setting a phone up, or removing one, is for an administrator, who types their own password again - and it is the SHOP SERVER
+    // that checks it, not this iPad: whoever holds a phone's key could pass on a made-up payment.
+    var phoneBusy = false;
+
+    /** Why phones cannot be set up or removed here right now, or null. */
+    function tillPhoneBlock() {
+      if (!supportSignedIn()) {
+        return 'This device has not joined a shop yet.';
+      }
+      if (!session) {
+        return 'Log in first.';
+      }
+      if (session.roleName !== 'Admin') {
+        return 'Only an administrator of the shop can set up or remove a phone.';
+      }
+      return null;
+    }
+
+    function tillPhone(raw) {
+      return {
+        id: whole(raw.id) ? raw.id : 0,
+        label: typeof raw.label === 'string' ? raw.label : '',
+        addedBy: typeof raw.added_by === 'string' ? raw.added_by : '',
+        addedAt: supportTime(raw.added_at),
+        lastMessageAt: supportTime(raw.last_message_at),
+        // true once the phone's Shortcut passes on who each SMS came from (messages a person typed are then refused)
+        senderCheck: raw.sender_check === true
+      };
+    }
+
+    function tillPhoneList(list) {
+      var phones = [];
+      for (var i = 0; i < list.length; i++) {
+        var phone = tillPhone(list[i] || {});
+        if (phone.id > 0) {
+          phones.push(phone);
+        }
+      }
+      return phones;
+    }
+
+    /** One M-Pesa code as the shop knows it: its message (if it arrived) and the sale it was used on (if any). */
+    function tillPayment(raw) {
+      var used = raw.used && typeof raw.used === 'object'
+        ? { saleNumber: typeof raw.used.sale_number === 'string' ? raw.used.sale_number : '', amountCents: whole(raw.used.amount_cents) ? raw.used.amount_cents : null, usedAt: supportTime(raw.used['at']) }
+        : null;
+      return {
+        code: typeof raw.code === 'string' ? raw.code : '',
+        messageReceived: raw.message_received === true,
+        amountCents: whole(raw.amount_cents) ? raw.amount_cents : null,
+        payerName: typeof raw.payer_name === 'string' ? raw.payer_name : '',
+        payerPhone: typeof raw.payer_phone === 'string' ? raw.payer_phone : '',
+        accountRef: typeof raw.account_ref === 'string' ? raw.account_ref : '',
+        paidAtText: typeof raw.paid_at_text === 'string' ? raw.paid_at_text : '',
+        receivedAt: supportTime(raw.received_at),
+        phoneLabel: typeof raw.phone_label === 'string' ? raw.phone_label : '',
+        archivedAt: supportTime(raw.archived_at),
+        used: used
+      };
+    }
+
+    /** The shop server's own words are kept when it gives a reason (wrong password, too many phones...); the rest is put plainly. */
+    function tillPhoneFailure(error, body, status) {
+      var reasoned = !!(body && typeof body.reason === 'string' && body.reason);
+      if (status === 404 && !reasoned) {
+        return problem('unavailable', 'The shop server cannot do this yet. Ask the owner to update it.');
+      }
+      if (error.code === 'unauthorized' || (error.code === 'forbidden' && !reasoned)) {
+        return problem(error.code, 'This iPad is not allowed to do this. Ask the owner to check Connected devices.');
+      }
+      return problem(reasoned ? body.reason : error.code, error.message);
+    }
+
+    /** The address a phone sends each message to. */
+    function tillPhoneAddress() {
+      return baseUrl + '?action=payment_inbox_ingest';
+    }
+
+    /** The shop's phones: cb(error) or cb(null, {phones: [{id, label, addedBy, addedAt, lastMessageAt}], max}). */
+    function tillPhones(cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      call('GET', 'payment_inbox_sources', null, function (error, body, status) {
+        if (error) {
+          cb(tillPhoneFailure(error, body, status));
+          return;
+        }
+        if (!body || !isList(body.phones)) {
+          cb(problem('server', 'The shop server sent a list of phones this till cannot read. Try again later.'));
+          return;
+        }
+        cb(null, { phones: tillPhoneList(body.phones), max: whole(body.max_phones) && body.max_phones > 0 ? body.max_phones : 5 });
+      });
+    }
+
+    /**
+     * request: {label, password (the administrator's own)} -> cb({ok:false, message, code}) | cb({ok:true, key, phone, address}).
+     * The key is given this ONCE: the shop keeps only a fingerprint of it, so it cannot be shown again.
+     */
+    function addTillPhone(request, cb) {
+      var blocked = tillPhoneBlock();
+      if (blocked) {
+        cb({ ok: false, message: blocked, code: 'input' });
+        return;
+      }
+      if (phoneBusy) {
+        cb({ ok: false, message: 'Wait a moment.', code: 'busy' });
+        return;
+      }
+      if (!request || !request.password) {
+        cb({ ok: false, message: 'Enter your password.', code: 'input' });
+        return;
+      }
+      phoneBusy = true;
+      var who = session;
+      call('POST', 'payment_inbox_add_source', { label: String(request.label || ''), user_id: session.id, password: String(request.password) }, function (error, body, status) {
+        phoneBusy = false;
+        if (error) {
+          var failure = tillPhoneFailure(error, body, status);
+          cb({ ok: false, message: failure.message, code: failure.code });
+          return;
+        }
+        var phone = body && body.phone && typeof body.phone === 'object' ? tillPhone(body.phone) : null;
+        if (!body || typeof body.key !== 'string' || !/^npk_[a-f0-9]{48}$/.test(body.key) || !phone || phone.id <= 0) {
+          cb({ ok: false, message: 'The shop server sent a key this till cannot read. Remove the new phone from the list and set it up again.', code: 'server' });
+          return;
+        }
+        if (session !== who) {
+          // The key is for the administrator who asked, not for whoever is at the till now.
+          cb({ ok: false, message: 'You were logged out before the key arrived. Log in, remove the phone that was just added, and set it up again.', code: 'logged_out' });
+          return;
+        }
+        cb({ ok: true, key: body.key, phone: phone, address: tillPhoneAddress() });
+      });
+    }
+
+    /** request: {phoneId, password (the administrator's own)} -> cb({ok:false, message, code}) | cb({ok:true, phones}). */
+    function removeTillPhone(request, cb) {
+      var blocked = tillPhoneBlock();
+      if (blocked) {
+        cb({ ok: false, message: blocked, code: 'input' });
+        return;
+      }
+      if (phoneBusy) {
+        cb({ ok: false, message: 'Wait a moment.', code: 'busy' });
+        return;
+      }
+      if (!request || !whole(request.phoneId) || request.phoneId <= 0) {
+        cb({ ok: false, message: 'Choose the phone to remove.', code: 'input' });
+        return;
+      }
+      if (!request.password) {
+        cb({ ok: false, message: 'Enter your password.', code: 'input' });
+        return;
+      }
+      phoneBusy = true;
+      call('POST', 'payment_inbox_remove_source', { phone_id: request.phoneId, user_id: session.id, password: String(request.password) }, function (error, body, status) {
+        phoneBusy = false;
+        if (error) {
+          var failure = tillPhoneFailure(error, body, status);
+          cb({ ok: false, message: failure.message, code: failure.code });
+          return;
+        }
+        cb({ ok: true, phones: body && isList(body.phones) ? tillPhoneList(body.phones) : [] });
+      });
+    }
+
+    /**
+     * What the shop's phones passed on, and which codes its tills used, in the last [hours] hours - newest first.
+     * cb(error) or cb(null, {payments: [{code, messageReceived, amountCents, payerName, payerPhone, accountRef, paidAtText, receivedAt, phoneLabel, used}], phones}).
+     */
+    function tillPayments(hours, cb) {
+      if (!supportSignedIn()) {
+        cb(problem('input', 'This device has not joined a shop yet.'));
+        return;
+      }
+      var span = whole(hours) && hours >= 1 && hours <= 72 ? hours : 24;
+      call('GET', 'payment_inbox_list&hours=' + span, null, function (error, body, status) {
+        if (error) {
+          cb(tillPhoneFailure(error, body, status));
+          return;
+        }
+        if (!body || !isList(body.payments)) {
+          cb(problem('server', 'The shop server sent payments this till cannot read. Try again later.'));
+          return;
+        }
+        var payments = [];
+        for (var i = 0; i < body.payments.length; i++) {
+          var payment = tillPayment(body.payments[i] || {});
+          if (payment.code) {
+            payments.push(payment);
+          }
+        }
+        cb(null, { payments: payments, phones: whole(body.phones) ? body.phones : 0 });
+      });
+    }
+
+    // ---- refunds: the apps' Refund screen, for any sale of the shop ------------------------------------------------------------
+    // An owner (Admin) or a Manager can refund, and must type their own password again first (as in the apps). The sale is read
+    // from the shop (with what earlier refunds already gave back), the refund is saved on this iPad as its own sale with negative
+    // amounts - exactly what the app writes - and sent with the sales. Money is never moved by NexaPOS: it is paid back by hand.
+    var refunding = false;
+
+    /** Why refunding is not possible right now, or null. */
+    function refundBlock() {
+      var blocked = sellBlock();
+      if (blocked) {
+        return blocked;
+      }
+      if (session.roleName !== 'Admin' && session.roleName !== 'Manager') {
+        return 'Only an administrator or a manager can refund.';
+      }
+      return null;
+    }
+
+    /** How many refunds of a sale this iPad holds (waiting or refused): the sale on screen is out of date when that changes. */
+    function refundsHere(saleId) {
+      var count = 0;
+      for (var i = 0; i < state.outbox.length; i++) {
+        if (isRefundEntry(state.outbox[i]) && state.outbox[i].receipt.refundOfSaleId === saleId) {
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    function validRefundSource(body) {
+      if (!body || typeof body !== 'object' || !body.sale || typeof body.sale !== 'object' || !isList(body.items) || !isList(body.lines) || !body.refunded || typeof body.refunded !== 'object') {
+        return false;
+      }
+      var sale = body.sale;
+      if (typeof sale.id !== 'string' || typeof sale.saleNumber !== 'string' || typeof sale.status !== 'string' || typeof sale.paymentMethod !== 'string' ||
+          !whole(sale.subtotalCents) || !whole(sale.discountCents) || !whole(sale.totalCents) ||
+          (sale.cashReceivedCents !== null && sale.cashReceivedCents !== undefined && !whole(sale.cashReceivedCents))) {
+        return false;
+      }
+      var i;
+      for (i = 0; i < body.items.length; i++) {
+        var item = body.items[i];
+        if (!item || typeof item.id !== 'string' || typeof item.itemName !== 'string' || !whole(item.quantity) || !whole(item.unitPriceCents) || !whole(item.costPriceCents)) {
+          return false;
+        }
+      }
+      for (i = 0; i < body.lines.length; i++) {
+        if (!body.lines[i] || typeof body.lines[i].itemId !== 'string' || !whole(body.lines[i].refunded)) {
+          return false;
+        }
+      }
+      var keys = ['subtotalCents', 'discountCents', 'totalCents', 'cashCents'];
+      for (i = 0; i < keys.length; i++) {
+        if (!whole(body.refunded[keys[i]])) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Reads a sale from the shop with its lines and what is already given back, ready for quoteRefund / refundSale. Whatever this iPad
+     * has waiting is sent first, so the shop's picture is complete. cb(error) or cb(null, source).
+     */
+    function loadSaleForRefund(saleId, cb) {
+      var blocked = refundBlock();
+      if (blocked) {
+        cb(problem('input', blocked));
+        return;
+      }
+      // Whatever waits here is sent first. If it cannot be (no internet, the shop busy) the sale can still be opened, unless the sale
+      // itself or a refund of it is among what waits: the shop's picture of it would be incomplete.
+      flush(function () {
+        for (var i = 0; i < state.outbox.length; i++) {
+          var entry = state.outbox[i];
+          if (entry.status === 'pending' && ((isRefundEntry(entry) && entry.receipt.refundOfSaleId === saleId) || (entry.id === saleId && !isExpenseEntry(entry)))) {
+            cb(problem('waiting', 'This sale (or a refund of it) is still waiting on this iPad to be sent to the shop. Connect to the internet and try again.'));
+            return;
+          }
+        }
+        call('GET', 'lite_sale&id=' + encodeURIComponent(saleId), null, function (error, body, status) {
+          if (error) {
+            if (error.code === 'unauthorized' || error.code === 'forbidden') {
+              cb(problem(error.code, 'This iPad is not allowed to refund. Ask the owner to check Connected devices.'));
+            } else if (status === 404 && body && body.message === 'The shop has no such sale.') {
+              cb(problem('missing', 'The shop has no record of that sale, so it cannot be refunded.'));
+            } else if (status === 404) {
+              cb(problem('unavailable', 'The shop server cannot do refunds yet. Ask the owner to update it.'));
+            } else {
+              cb(error);
+            }
+            return;
+          }
+          if (!validRefundSource(body)) {
+            cb(problem('server', 'The shop server sent a sale this till cannot read. Try again, or ask the owner to update the server.'));
+            return;
+          }
+          cb(null, {
+            sale: body.sale,
+            cashierName: typeof body.cashierName === 'string' ? body.cashierName : '',
+            items: body.items,
+            lines: body.lines,
+            refundCount: whole(body.refundCount) ? body.refundCount : 0,
+            refunded: body.refunded,
+            heldHere: refundsHere(saleId)
+          });
+        });
+      });
+    }
+
+    /**
+     * request: {source (from loadSaleForRefund), choices: [{itemId, quantity, restock}], reason, password (the person's own)}
+     * -> cb({ok:true, receipt}) | cb({ok:false, message}). The refund is checked completely BEFORE the password is tried, then saved on
+     * this iPad before anything is sent; call flush() afterwards.
+     */
+    function refundSale(request, cb) {
+      var blocked = refundBlock();
+      if (blocked) {
+        cb({ ok: false, message: blocked });
+        return;
+      }
+      if (refunding) {
+        cb({ ok: false, message: 'A refund is being recorded. Wait a moment.' });
+        return;
+      }
+      var source = request.source;
+      if (!source || !source.sale || refundsHere(source.sale.id) !== source.heldHere) {
+        cb({ ok: false, message: 'This sale has changed since it was opened. Open it again.' });
+        return;
+      }
+      function attempt(rev) {
+        return options.sale.buildRefund({
+          source: source, choices: request.choices || [], reason: request.reason, products: productMap(),
+          userId: session.id, deviceId: state.device.id, now: now, nextRev: rev, randomHex: random
+        });
+      }
+      var first = attempt(state.nextRev);
+      if (!first.ok) {
+        cb(first);
+        return;
+      }
+      if (!request.password) {
+        cb({ ok: false, message: 'Enter your password.' });
+        return;
+      }
+      var people = state.catalog.users;
+      var me = null;
+      for (var i = 0; i < people.length; i++) {
+        if (people[i].id === session.id) {
+          me = people[i];
+        }
+      }
+      if (!me || me.status !== 'active' || (ROLE_NAMES[me.roleId] !== 'Admin' && ROLE_NAMES[me.roleId] !== 'Manager')) {
+        cb({ ok: false, message: 'Only an administrator or a manager can refund.' });
+        return;
+      }
+      if (state.lockedUntil > now()) {
+        cb({ ok: false, message: 'Too many wrong passwords. Try again in ' + Math.ceil((state.lockedUntil - now()) / 1000) + ' seconds.' });
+        return;
+      }
+      refunding = true;
+      var who = session;
+      options.bcrypt.compare(String(request.password), me.passwordHash, function (error, matches) {
+        refunding = false;
+        if (error || !matches) {
+          failedAttempt(function (failure) { cb({ ok: false, message: failure.message }); }, 'That password is not right.');
+          return;
+        }
+        state.failedLogins = 0;
+        state.lockedUntil = 0;
+        if (session !== who || refundBlock() || refundsHere(source.sale.id) !== source.heldHere) {
+          save();
+          cb({ ok: false, message: session !== who ? 'You were logged out. Log in and try again.' : (refundBlock() || 'This sale has changed since it was opened. Open it again.') });
+          return;
+        }
+        var built = attempt(state.nextRev);
+        if (!built.ok) {
+          save();
+          cb(built);
+          return;
+        }
+        built.receipt.cashierName = session.name;
+        commitBuilt(built, null, 'refund');
+        cb({ ok: true, receipt: built.receipt });
+      });
+    }
+
     // ---- online (Paystack) payments -----------------------------------------------------------------------
     function currencyCode() {
       var business = state.catalog ? state.catalog.business : null;
@@ -575,7 +1772,7 @@
       var start = new Date(now());
       start.setHours(0, 0, 0, 0);
       var from = start.getTime();
-      var out = { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, complete: true };
+      var out = { sales: 0, items: 0, totalCents: 0, cashCents: 0, mpesaCents: 0, onlineCents: 0, refunds: 0, refundCents: 0, complete: true };
       for (var i = 0; i < state.history.length; i++) {
         var entry = state.history[i];
         var receipt = entry.receipt;
@@ -583,6 +1780,21 @@
           continue;
         }
         if ((entry.status !== 'queued' && entry.status !== 'sent') || entry.payment === 'awaiting' || entry.payment === 'cancelled') {
+          continue;
+        }
+        if (receipt.isRefund) {
+          // money that went back to the customers: it is no sale, but it leaves the till (cash first, as for a split sale)
+          out.refunds += 1;
+          out.refundCents += receipt.totalCents;
+          out.totalCents -= receipt.totalCents;
+          if (receipt.paymentMethod === 'cash') {
+            out.cashCents -= receipt.totalCents;
+          } else if (receipt.paymentMethod === 'paystack') {
+            out.cashCents -= receipt.cashBackCents || 0;
+            out.onlineCents -= receipt.totalCents - (receipt.cashBackCents || 0);
+          } else {
+            out.mpesaCents -= receipt.totalCents;
+          }
           continue;
         }
         out.sales += 1;
@@ -649,7 +1861,15 @@
           cb(problem('server', 'The shop server sent a report this till cannot read. Try again, or ask the owner to update the server.'));
           return;
         }
-        var out = { range: range, waitingHere: outboxSummary().pending, salesTruncated: !!report.salesTruncated, expensesTruncated: !!report.expensesTruncated, sales: report.sales, expenses: report.expenses };
+        // Refunds: a server that does not know them yet sends none, which reads as "nothing refunded".
+        var refunds = isList(report.refunds) ? report.refunds : [];
+        var out = {
+          range: range, waitingHere: outboxSummary().pending, salesTruncated: !!report.salesTruncated, expensesTruncated: !!report.expensesTruncated,
+          sales: report.sales, expenses: report.expenses,
+          refunds: refunds, refundsTruncated: !!report.refundsTruncated,
+          refundsTotalCents: whole(report.refundsTotalCents) ? report.refundsTotalCents : 0,
+          refundCount: whole(report.refundCount) ? report.refundCount : refunds.length
+        };
         for (var k = 0; k < keys.length; k++) {
           out[keys[k]] = report[keys[k]];
         }
@@ -908,6 +2128,8 @@
           for (var j = 0; j < keys.length; j++) {
             day[keys[j]] = list[d][keys[j]];
           }
+          // what went back that day (a server that does not know refunds sends none); salesTotalCents is already net of it
+          day.refundsCents = whole(list[d].refundsCents) ? list[d].refundsCents : 0;
           days.push(day);
         }
         var today = days[days.length - 1];
@@ -952,6 +2174,9 @@
       var shop = shopInfo();
       function money(cents) {
         return shop.currency + ' ' + formatCents(cents);
+      }
+      if (receipt.isRefund) {
+        return refundSheet(receipt, reprint, shop, money);
       }
       var d = new Date(receipt.createdAt);
       var meta = [
@@ -999,6 +2224,63 @@
         meta: meta,
         lines: lines,
         totals: totals,
+        payment: payment
+      };
+    }
+
+    /**
+     * A refund's receipt, laid out like the apps' REFUND receipt: the title, who refunded, which sale and why, what went back, the
+     * money given back (and, for a sale paid partly in cash, how much of it was cash), and how it was paid back.
+     */
+    function refundSheet(receipt, reprint, shop, money) {
+      var d = new Date(receipt.createdAt);
+      var meta = [
+        { label: 'Receipt #', value: receipt.saleNumber },
+        { label: 'Date', value: d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear() + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) }
+      ];
+      if (receipt.cashierName) {
+        meta.push({ label: 'Refunded by', value: receipt.cashierName });
+      }
+      if (receipt.customerName && receipt.customerName !== 'Walk-in customer') {
+        meta.push({ label: 'Customer', value: receipt.customerName });
+      }
+      if (receipt.refundOfSaleNumber) {
+        meta.push({ label: 'Refund of', value: receipt.refundOfSaleNumber });
+      }
+      if (receipt.reason) {
+        meta.push({ label: 'Reason', value: receipt.reason });
+      }
+      var lines = [];
+      for (var i = 0; i < receipt.lines.length; i++) {
+        var line = receipt.lines[i];
+        lines.push({ name: line.name, quantity: line.quantity, unit: money(line.unitPriceCents), total: money(line.lineTotalCents) });
+      }
+      var method = receipt.paymentMethod;
+      var payment = [{ label: 'Paid back via', value: method === 'cash' ? 'Cash' : (method === 'mpesa_manual' ? 'M-Pesa (Manual)' : 'M-Pesa'), text: true }];
+      if (method === 'paystack' && receipt.cashBackCents !== null && receipt.cashBackCents !== undefined) {
+        payment.push({ label: 'Cash back', value: money(receipt.cashBackCents) });
+        payment.push({ label: 'M-Pesa back', value: money(receipt.totalCents - receipt.cashBackCents) });
+      }
+      payment.push({ label: 'Status', value: 'REFUNDED', text: true });
+      return {
+        title: 'REFUND',
+        widthMm: shop.paperWidthMm,
+        shopName: shop.name,
+        poweredBy: 'Powered by NEXAPOS',
+        address: shop.address,
+        phone: shop.phone,
+        footer: shop.footer,
+        thanks: 'Thank you for shopping with us!',
+        support: 'Support / Installation: 0768415017',
+        barcodeValue: options.barcode ? options.barcode.receiptBarcodeValue(receipt.saleNumber) : '',
+        reprint: !!reprint,
+        meta: meta,
+        lines: lines,
+        totals: [
+          { label: 'Subtotal', value: money(receipt.subtotalCents) },
+          { label: 'Discount', value: money(receipt.discountCents) },
+          { label: 'TOTAL REFUNDED', value: money(receipt.totalCents), grand: true }
+        ],
         payment: payment
       };
     }
@@ -1316,7 +2598,7 @@
         cart: cart,
         saleType: draft.saleType === 'wholesale' ? 'wholesale' : 'retail',
         discount: String(draft.discount || '').slice(0, 20),
-        payment: draft.payment === 'paystack' ? 'paystack' : 'cash',
+        payment: draft.payment === 'paystack' || draft.payment === 'till' ? draft.payment : 'cash',
         phone: String(draft.phone || '').slice(0, 30),
         cashReceived: String(draft.cashReceived || '').slice(0, 20)
       };
@@ -1426,12 +2708,18 @@
       return entry.kind === 'expense' || entry.kind === 'expense-delete';
     }
 
-    /** pending / rejected are SALES (and their settlements); pendingExpenses / rejectedExpenses are the expenses entered on this iPad. */
+    function isRefundEntry(entry) {
+      return entry.kind === 'refund';
+    }
+
+    /** pending / rejected are SALES (and their settlements); pendingExpenses / rejectedExpenses are the expenses entered on this iPad; pendingRefunds / rejectedRefunds its refunds. */
     function outboxSummary() {
       var pending = 0;
       var pendingExpenses = 0;
+      var pendingRefunds = 0;
       var rejected = [];
       var rejectedExpenses = [];
+      var rejectedRefunds = [];
       for (var i = 0; i < state.outbox.length; i++) {
         var entry = state.outbox[i];
         if (isExpenseEntry(entry)) {
@@ -1440,13 +2728,19 @@
           } else if (entry.status === 'rejected') {
             rejectedExpenses.push({ id: entry.id, title: entry.expense.title, amountCents: entry.expense.amountCents, deleting: entry.kind === 'expense-delete', message: entry.error, createdAt: entry.createdAt });
           }
+        } else if (isRefundEntry(entry)) {
+          if (entry.status === 'pending') {
+            pendingRefunds += 1;
+          } else if (entry.status === 'rejected') {
+            rejectedRefunds.push({ id: entry.id, saleNumber: entry.receipt.saleNumber, refundOfSaleNumber: entry.receipt.refundOfSaleNumber, totalCents: entry.receipt.totalCents, message: entry.error, createdAt: entry.createdAt });
+          }
         } else if (entry.status === 'pending') {
           pending += 1;
         } else if (entry.status === 'rejected') {
           rejected.push({ id: entry.id, saleNumber: entry.receipt.saleNumber, totalCents: entry.receipt.totalCents, message: entry.error, createdAt: entry.createdAt });
         }
       }
-      return { pending: pending, rejected: rejected, pendingExpenses: pendingExpenses, rejectedExpenses: rejectedExpenses };
+      return { pending: pending, rejected: rejected, pendingExpenses: pendingExpenses, rejectedExpenses: rejectedExpenses, pendingRefunds: pendingRefunds, rejectedRefunds: rejectedRefunds };
     }
 
     /**
@@ -1579,13 +2873,17 @@
         shopName: catalog && catalog.business ? catalog.business.businessName : '',
         currency: catalog && catalog.business ? catalog.business.currency : 'KES',
         fetchedAt: state.fetchedAt,
+        serverOffsetMs: state.serverOffset || 0,
         productCount: catalog ? catalog.products.length : 0,
         license: licenseStatus(),
         storageOk: storageOk,
         deviceLabel: state.device ? state.device.label : '',
+        deviceId: state.device ? state.device.id : '',
         pendingSales: outboxSummary().pending,
         pendingExpenses: outboxSummary().pendingExpenses,
         rejectedExpenses: outboxSummary().rejectedExpenses.length,
+        pendingRefunds: outboxSummary().pendingRefunds,
+        rejectedRefunds: outboxSummary().rejectedRefunds.length,
         onlineWaiting: state.online.length,
         heldSales: state.held.length,
         rejectedSales: outboxSummary().rejected.length,
@@ -1611,6 +2909,10 @@
       refresh: refresh,
       login: login,
       logout: logout,
+      quickSignInStatus: quickSignInStatus,
+      setUpQuickSignIn: setUpQuickSignIn,
+      turnOffQuickSignIn: turnOffQuickSignIn,
+      quickLogin: quickLogin,
       restoreSession: restoreSession,
       currentUser: function () { return session; },
       searchProducts: searchProducts,
@@ -1619,6 +2921,33 @@
       getStatus: getStatus,
       forget: forget,
       sell: sell,
+      licenseDetails: licenseDetails,
+      supportList: supportList,
+      supportThread: supportThread,
+      supportOpen: supportOpen,
+      supportReply: supportReply,
+      supportMarkRead: supportMarkRead,
+      supportReact: supportReact,
+      supportClose: supportClose,
+      supportPhotoRequest: supportPhotoRequest,
+      supportRepliesWaiting: function () { return supportWaiting; },
+      tillPhoneBlock: tillPhoneBlock,
+      tillPhoneAddress: tillPhoneAddress,
+      tillPhones: tillPhones,
+      addTillPhone: addTillPhone,
+      removeTillPhone: removeTillPhone,
+      tillPayments: tillPayments,
+      sellTill: sellTill,
+      unusedTillPayments: unusedTillPayments,
+      tillMatches: tillMatches,
+      TILL_AUTO_MINUTES: TILL_AUTO_MINUTES,
+      archiveTillPayment: archiveTillPayment,
+      mpesaCode: mpesaCode,
+      refundBlock: refundBlock,
+      loadSaleForRefund: loadSaleForRefund,
+      quoteRefund: function (source, choices) { return options.sale.quoteRefund(source, choices); },
+      whyNotRefundable: function (source) { return options.sale.whyNotRefundable(source); },
+      refundSale: refundSale,
       startOnline: startOnline,
       checkOnline: checkOnline,
       cancelOnline: cancelOnline,
@@ -1652,6 +2981,82 @@
       parseCents: parseCents,
       _memoryOnly: function () { return memoryOnly; }
     };
+  }
+
+  // ---- support: times, headings and words (the apps' support_chat.dart) -------------------------------------------------------
+  /** The reactions a message can get (the server accepts only these). */
+  var SUPPORT_REACTIONS = ['\u2764\uFE0F', '\uD83D\uDC4D', '\uD83D\uDC4E', '\uD83D\uDE02', '\u203C\uFE0F', '\u2753'];
+  var DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /** The server's "2026-10-06 13:00:21" is UTC: the moment it means, in milliseconds (null when there is none). */
+  /** A payment newer than this (minutes) may complete a sale by itself; an older one is only suggested. */
+  var TILL_AUTO_MINUTES = 10;
+
+  /**
+   * Which of the unused payments [payments] (newest first) fit a sale of [totalCents]:
+   *   matches - the ones of exactly that amount, newest first (shown at checkout);
+   *   others  - every other one (another amount, or an amount that could not be read; shown only when asked for);
+   *   auto    - the payment the sale completes with by itself, or null: the ONLY one of that amount, and new (it reached
+   *             the shop less than TILL_AUTO_MINUTES ago). Two or more of the same amount are for the cashier to choose
+   *             from; an older lone one may be an earlier customer's, so it is only suggested.
+   * [nowMs]: the time now. A payment that looks newer than now (this device's clock is slow) counts as new.
+   */
+  function tillMatches(payments, totalCents, nowMs) {
+    var matches = [];
+    var others = [];
+    var list = payments || [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (totalCents > 0 && p.amountCents !== null && p.amountCents === totalCents) {
+        matches.push(p);
+      } else {
+        others.push(p);
+      }
+    }
+    var auto = null;
+    if (matches.length === 1 && matches[0].receivedAt !== null && nowMs - matches[0].receivedAt < TILL_AUTO_MINUTES * 60000) {
+      auto = matches[0];
+    }
+    return { matches: matches, others: others, auto: auto };
+  }
+
+  function supportTime(text) {
+    var raw = String(text || '').replace(/^\s+|\s+$/g, '');
+    if (!raw) {
+      return null;
+    }
+    var iso = raw.indexOf('T') >= 0 ? raw : raw.replace(' ', 'T') + 'Z';
+    var ms = Date.parse(iso.replace(/(\.\d{3})\d+/, '$1'));
+    return isFinite(ms) ? ms : null;
+  }
+
+  /** "Today", "Yesterday" or "Tue 6 Oct": the little heading above each day's messages (local days). */
+  function supportDayLabel(ms, nowMs) {
+    var day = new Date(ms);
+    var today = new Date(nowMs);
+    var a = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    var b = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+    var days = Math.round((a - b) / 86400000);
+    if (days === 0) {
+      return 'Today';
+    }
+    if (days === 1) {
+      return 'Yesterday';
+    }
+    return DAY_SHORT[day.getDay()] + ' ' + day.getDate() + ' ' + MONTH_SHORT[day.getMonth()];
+  }
+
+  /** "1:05 PM". */
+  function supportClock(ms) {
+    var d = new Date(ms);
+    var hours = d.getHours();
+    var minutes = d.getMinutes();
+    return (hours % 12 === 0 ? 12 : hours % 12) + ':' + (minutes < 10 ? '0' : '') + minutes + ' ' + (hours < 12 ? 'AM' : 'PM');
+  }
+
+  function supportStatusLabel(status) {
+    return status === 'pending' ? 'Reply from support' : (status === 'closed' ? 'Closed' : 'Waiting for support');
   }
 
   // ---- reports: which period is meant ----------------------------------------------------------------------------
@@ -1762,6 +3167,16 @@
 
   // ---- the dashboard ----------------------------------------------------------------------------------------------
   /**
+   * Whether the person signed in sees the shop's money on the dashboard: Sales Today, Net Profit Today, Stock Value and
+   * the Last 7 Days. Admins and managers do; a cashier does not, and sees only Low Stock (the owner, 2026-11-23: "make
+   * the cashier user not to be able to see daily sales or profits on the dashboard or stock value"). Like the apps, a
+   * list of who may: anyone else (a role this page does not know, nobody signed in) sees nothing.
+   */
+  function canSeeShopFigures(user) {
+    return !!user && (user.roleName === 'Admin' || user.roleName === 'Manager');
+  }
+
+  /**
    * The apps' "change since yesterday" badge (PercentChange.compare): up, down or flat, and by how many percent. When
    * yesterday was exactly zero there is nothing to compare with: today also zero is flat; anything else counts as +100%.
    * Rounding is half away from zero, like the apps.
@@ -1836,5 +3251,5 @@
     return running !== null && latest !== null && running !== latest;
   }
 
-  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable };
+  return { create: create, formatCents: formatCents, parseCents: parseCents, randomHex: randomHex, STORE_KEY: STORE_KEY, reportRange: reportRange, percentChange: percentChange, canSeeShopFigures: canSeeShopFigures, dashboardPeriods: dashboardPeriods, pageBuild: pageBuild, pageSignature: pageSignature, updateAvailable: updateAvailable, supportTime: supportTime, supportDayLabel: supportDayLabel, supportClock: supportClock, supportStatusLabel: supportStatusLabel, SUPPORT_REACTIONS: SUPPORT_REACTIONS, bytesToB64url: bytesToB64url, b64urlToBytes: b64urlToBytes, utf8Text: utf8Text, derToRawSignature: derToRawSignature };
 }));
