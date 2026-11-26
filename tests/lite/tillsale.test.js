@@ -505,6 +505,167 @@ test('the M-Pesa code rule is the shop\'s: capitals, no spaces or dashes, 8 to 1
   });
 });
 
+// ---- the customer paid in two or more payments (say 80, then 40 for a sale of 120) -------------------------------------------------
+var PART_ONE = 'SJK2TILL9X';
+var PART_TWO = 'SJK3TILL8Y';
+var PART_THREE = 'SJK4TILL7Z';
+function parts(extra) {
+  var amounts = {};
+  amounts[PART_ONE] = 8000;
+  amounts[PART_TWO] = 4000;
+  amounts[PART_THREE] = 1000;
+  for (var k in (extra || {})) { amounts[k] = extra[k]; }
+  return amounts;
+}
+
+test('several payments: each code is used on THIS sale for exactly its own amount, then the sale is saved once with every code', function (done) {
+  till(usedOn(), function (t) {
+    t.core.sellTill(request({ code: PART_ONE + ', ' + PART_TWO, amounts: parts() }), function (result) {
+      assert.strictEqual(result.ok, true, JSON.stringify(result));
+      var claims = t.claims();
+      assert.deepStrictEqual(claims.map(function (c) { return [c.body.code, c.body.amount_cents, c.body.accept_amount, c.body.require_message]; }),
+        [[PART_ONE, 8000, false, true], [PART_TWO, 4000, false, true]]);
+      claims.forEach(function (c) {
+        assert.strictEqual(c.body.sale_id, result.receipt.saleId, 'both on the very sale that was saved');
+        assert.strictEqual(c.body.sale_number, result.receipt.saleNumber);
+      });
+      assert.strictEqual(result.receipt.referenceNote, PART_ONE + ', ' + PART_TWO);
+      assert.strictEqual(result.paidCents, 12000);
+      assert.strictEqual(result.payments.length, 2);
+      var saved = outboxSale(t);
+      assert.strictEqual(saved.byTable.sales.length, 1);
+      assert.strictEqual(saved.byTable.payment_records.length, 1, 'one payment record, as for any till sale (the shop checks that)');
+      var payment = saved.byTable.payment_records[0].payload;
+      assert.deepStrictEqual([payment.method, payment.amountCents, payment.referenceNote, payment.status], ['mpesa_manual', 12000, PART_ONE + ', ' + PART_TWO, 'paid']);
+      assert.strictEqual(t.releases().length, 0);
+      done();
+    });
+  });
+});
+
+test('several payments: typed with a plus or a comma, in any case, each code only once', function (done) {
+  till(usedOn(), function (t) {
+    t.core.sellTill(request({ code: ' sjk2 till-9x + SJK3TILL8Y,sjk2till9x ', amounts: parts() }), function (result) {
+      assert.strictEqual(result.ok, true, JSON.stringify(result));
+      assert.deepStrictEqual(t.claims().map(function (c) { return c.body.code; }), [PART_ONE, PART_TWO]);
+      done();
+    });
+  });
+});
+
+test('several payments that add up to less than the sale are refused before anything is sent', function (done) {
+  till(usedOn(), function (t) {
+    t.core.sellTill(request({ code: PART_ONE + ', ' + PART_THREE, amounts: parts() }), function (result) {
+      assert.deepStrictEqual([result.ok, result.code, result.paidCents, result.totalCents], [false, 'short', 9000, 12000]);
+      assert.ok(result.message.indexOf('add up to KES 90.00, which is KES 30.00 less than this sale (KES 120.00)') >= 0, result.message);
+      assert.strictEqual(t.claims().length, 0);
+      nothingSold(t);
+      done();
+    });
+  });
+});
+
+test('a payment the sale does not need is refused, naming it', function (done) {
+  till(usedOn(), function (t) {
+    t.core.sellTill(request({ code: [PART_ONE, PART_TWO, PART_THREE].join(', '), amounts: parts() }), function (result) {
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.message.indexOf('without ' + PART_THREE) >= 0, result.message);
+      assert.strictEqual(t.claims().length, 0);
+      done();
+    });
+  });
+});
+
+test('several payments that add up to MORE: asked first; going ahead never sends a code as another amount', function (done) {
+  till(usedOn(), function (t) {
+    var more = parts({ SJK3TILL8Y: 5000 });
+    t.core.sellTill(request({ code: PART_ONE + ', ' + PART_TWO, amounts: more }), function (asked) {
+      assert.deepStrictEqual([asked.ok, asked.code, asked.paidCents, asked.totalCents, asked.payments], [false, 'amount_differs', 13000, 12000, 2]);
+      assert.strictEqual(t.claims().length, 0);
+      t.core.sellTill(request({ code: PART_ONE + ', ' + PART_TWO, amounts: more, acceptAmount: true }), function (result) {
+        assert.strictEqual(result.ok, true, JSON.stringify(result));
+        assert.strictEqual(result.paidCents, 13000, 'the page works out the KES 10 to give back from this');
+        assert.deepStrictEqual(t.claims().map(function (c) { return [c.body.amount_cents, c.body.accept_amount]; }), [[8000, false], [5000, false]]);
+        assert.strictEqual(outboxSale(t).byTable.payment_records[0].payload.amountCents, 12000, 'the record is for the sale');
+        done();
+      });
+    });
+  });
+});
+
+test('several payments: a code not in the list is refused (its amount is not known)', function (done) {
+  till(usedOn(), function (t) {
+    t.core.sellTill(request({ code: PART_ONE + ', SJK9TILL1Q', amounts: parts() }), function (result) {
+      assert.deepStrictEqual([result.ok, result.code], [false, 'not_listed']);
+      assert.strictEqual(t.claims().length, 0);
+      done();
+    });
+  });
+});
+
+test('several payments: when the shop refuses one (another sale used it), the code already used is given back', function (done) {
+  till(function (r) {
+    if (r.action === 'payment_inbox_claim' && r.body.code === PART_TWO) { return refusal(409, 'used', 'This M-Pesa code was already used on sale ABC-7.')(r); }
+    return usedOn()(r);
+  }, function (t) {
+    t.core.sellTill(request({ code: PART_ONE + ', ' + PART_TWO, amounts: parts() }), function (result) {
+      assert.deepStrictEqual([result.ok, result.code, result.message], [false, 'used', 'This M-Pesa code was already used on sale ABC-7.']);
+      setImmediate(function () {
+        var releases = t.releases();
+        assert.strictEqual(releases.length, 1);
+        assert.deepStrictEqual([releases[0].body.code, releases[0].body.sale_id], [PART_ONE, t.claims()[0].body.sale_id]);
+        nothingSold(t);
+        done();
+      });
+    });
+  });
+});
+
+test('several payments: no internet half-way - nothing is sold, and the code already used is given back', function (done) {
+  till(function (r) {
+    if (r.action === 'payment_inbox_claim' && r.body.code === PART_TWO) { return 'offline'; }
+    return usedOn()(r);
+  }, function (t) {
+    t.core.sellTill(request({ code: PART_ONE + ', ' + PART_TWO, amounts: parts() }), function (result) {
+      assert.deepStrictEqual([result.ok, result.code], [false, 'offline']);
+      setImmediate(function () {
+        assert.deepStrictEqual(t.releases().map(function (r) { return r.body.code; }), [PART_ONE]);
+        nothingSold(t);
+        done();
+      });
+    });
+  });
+});
+
+test('several payments: the list showed another amount than the shop holds - nothing is sold, the list is to be loaded again', function (done) {
+  till(function (r) {
+    if (r.action === 'payment_inbox_claim' && r.body.code === PART_TWO) { return refusal(409, 'amount_differs', 'x', { amount_cents: 3000 })(r); }
+    return usedOn()(r);
+  }, function (t) {
+    t.core.sellTill(request({ code: PART_ONE + ', ' + PART_TWO, amounts: parts() }), function (result) {
+      assert.deepStrictEqual([result.ok, result.code], [false, 'stale']);
+      nothingSold(t);
+      done();
+    });
+  });
+});
+
+test('at most five payments for one sale; mpesaCodes reads one or several codes', function (done) {
+  till(usedOn(), function (t) {
+    var six = [0, 1, 2, 3, 4, 5].map(function (n) { return 'SJK' + n + 'TILL0A'; }).join(', ');
+    t.core.sellTill(request({ code: six, amounts: parts() }), function (result) {
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.message.indexOf('at most 5') >= 0, result.message);
+      assert.strictEqual(t.claims().length, 0);
+      assert.deepStrictEqual(t.core.mpesaCodes(' sjk2 till-9x '), ['SJK2TILL9X']);
+      assert.deepStrictEqual(t.core.mpesaCodes('SJK2TILL9X, sjk3till8y + SJK2TILL9X'), ['SJK2TILL9X', 'SJK3TILL8Y']);
+      assert.deepStrictEqual(t.core.mpesaCodes(' , '), []);
+      assert.strictEqual(t.core.mpesaCodes('SJK2TILL9X, nope'), null);
+      done();
+    });
+  });
+});
+
 var failed = 0;
 var index = 0;
 (function next() {

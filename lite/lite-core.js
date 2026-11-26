@@ -920,12 +920,35 @@
       return /^[A-Z0-9]{8,12}$/.test(code) && /[A-Z]/.test(code) && /[0-9]/.test(code) ? code : null;
     }
 
+    /** The most M-Pesa payments one sale may be paid with (a customer who sent part of the money, then the rest). */
+    var TILL_MAX_PAYMENTS = 5;
+
     /**
-     * request: {cart, saleType, discountCents, code, acceptAmount}
-     * -> cb({ok:true, receipt, payment}) |
-     *    cb({ok:false, code, message, paidCents?, totalCents?}) with code one of: input, offline, not_received, used, short,
-     *    amount_differs (paid MORE than the total: the cashier may go ahead with acceptAmount and give the rest back in cash),
-     *    amount_unknown (the message's amount could not be read: acceptAmount after checking the phone), unavailable, busy,
+     * The M-Pesa codes in what the cashier typed or tapped: one, or several separated by commas or "+" (spaces and dashes
+     * inside a code are left out, as for one code). Each once, in the order given. [] when nothing was given; null when a
+     * part is not a code. The same rule as the apps' (till_sale_service.dart mpesaCodesIn).
+     */
+    function mpesaCodes(typed) {
+      var parts = String(typed === undefined || typed === null ? '' : typed).split(/[,+;\n]/);
+      var codes = [];
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].replace(/\s+/g, '') === '') { continue; }
+        var code = mpesaCode(parts[i]);
+        if (!code) { return null; }
+        if (codes.indexOf(code) < 0) { codes.push(code); }
+      }
+      return codes;
+    }
+
+    /**
+     * request: {cart, saleType, discountCents, code, acceptAmount, amounts}
+     * code: one M-Pesa code, or several (comma-separated) when the customer paid in parts; amounts: the listed payments'
+     * amounts by code (needed for several).
+     * -> cb({ok:true, receipt, payment, payments, paidCents}) |
+     *    cb({ok:false, code, message, paidCents?, totalCents?, payments?}) with code one of: input, offline, not_received,
+     *    used, short, amount_differs (paid MORE than the total: the cashier may go ahead with acceptAmount and give the rest
+     *    back in cash), amount_unknown (the message's amount could not be read: acceptAmount after checking the phone),
+     *    not_listed (several codes, one not in the list), stale (the list showed another amount), unavailable, busy,
      *    logged_out, server.
      */
     function sellTill(request, cb) {
@@ -938,11 +961,20 @@
         cb({ ok: false, code: 'busy', message: 'The M-Pesa payment is being checked. Wait a moment.' });
         return;
       }
-      var code = mpesaCode(request && request.code);
-      if (!code) {
+      var codes = mpesaCodes(request && request.code);
+      if (!codes || codes.length === 0) {
         cb({ ok: false, code: 'input', message: 'Pick the customer\'s payment, or type its M-Pesa code (the 10 letters and numbers at the start of the message).' });
         return;
       }
+      if (codes.length > TILL_MAX_PAYMENTS) {
+        cb({ ok: false, code: 'input', message: 'One sale can be paid with at most ' + TILL_MAX_PAYMENTS + ' M-Pesa payments.' });
+        return;
+      }
+      if (codes.length > 1) {
+        sellTillSeveral(request, codes, cb);
+        return;
+      }
+      var code = codes[0];
       var startRev = state.nextRev;
       var built = options.sale.build({
         cart: request.cart,
@@ -1004,8 +1036,139 @@
         }
         receipt.cashierName = session.name;
         commitBuilt(built, null);
-        cb({ ok: true, receipt: receipt, payment: payment });
+        cb({ ok: true, receipt: receipt, payment: payment, payments: [payment], paidCents: payment.amountCents });
       });
+    }
+
+    /**
+     * The customer paid in two or more payments (say 200, then 50 for a sale of 250). Each must be one of the listed
+     * payments (request.amounts), so its amount is known; together they must cover the sale, with none it does not need;
+     * more than the sale is asked about first (amount_differs: the rest goes back in cash). Each code is then used on the
+     * sale for exactly its own amount - the shop refuses a code another sale used - and only then is the sale saved, with
+     * every code as its reference. When any code is refused, or the sale cannot be saved, the codes already used are given
+     * back: nothing is sold, and the payments can still be used. The same flow as the apps' (TillSaleService).
+     */
+    function sellTillSeveral(request, codes, cb) {
+      var known = request.amounts && typeof request.amounts === 'object' ? request.amounts : {};
+      var amounts = [];
+      var paid = 0;
+      for (var i = 0; i < codes.length; i++) {
+        var amount = known[codes[i]];
+        if (!whole(amount) || amount <= 0) {
+          cb({ ok: false, code: 'not_listed', message: codes[i] + ' is not one of the payments in the list (or its amount could not be read). When the customer paid in two or more payments, tap each of them in the list.' });
+          return;
+        }
+        amounts.push(amount);
+        paid += amount;
+      }
+      var startRev = state.nextRev;
+      var built = options.sale.build({
+        cart: request.cart,
+        products: productMap(),
+        saleType: request.saleType,
+        paymentMethod: 'mpesa_manual',
+        discountCents: request.discountCents,
+        customerName: '',
+        customerPhone: '',
+        referenceNote: codes.join(', '),
+        cashReceivedCents: null,
+        userId: session.id,
+        deviceId: state.device.id,
+        now: now,
+        nextRev: startRev,
+        randomHex: random
+      });
+      if (!built.ok) {
+        cb({ ok: false, code: 'input', message: built.message });
+        return;
+      }
+      var receipt = built.receipt;
+      var total = receipt.totalCents;
+      function inMoney(cents) { return currencyCode() + ' ' + formatCents(cents); }
+      if (paid < total) {
+        cb({ ok: false, code: 'short', paidCents: paid, totalCents: total, payments: codes.length, message: 'These ' + codes.length + ' payments add up to ' + inMoney(paid) + ', which is ' + inMoney(total - paid) + ' less than this sale (' + inMoney(total) + '). Tap the customer\'s other payment too.' });
+        return;
+      }
+      for (var j = 0; j < codes.length; j++) {
+        if (paid - amounts[j] >= total) {
+          cb({ ok: false, code: 'input', message: 'This sale does not need all of these payments: without ' + codes[j] + ' (' + inMoney(amounts[j]) + ') they still cover this sale (' + inMoney(total) + '). Tap it again to leave it out.' });
+          return;
+        }
+      }
+      if (paid > total && request.acceptAmount !== true) {
+        cb({ ok: false, code: 'amount_differs', paidCents: paid, totalCents: total, payments: codes.length, message: 'The customer\'s ' + codes.length + ' payments add up to ' + inMoney(paid) + ' for a sale of ' + inMoney(total) + '.' });
+        return;
+      }
+      var who = session;
+      var used = [];
+      var payments = [];
+      function giveBack() {
+        for (var k = 0; k < used.length; k++) { releaseTillCode(used[k], receipt.saleId); }
+      }
+      function claim(index) {
+        if (index === codes.length) {
+          tillSelling = false;
+          if (session !== who || sellBlock()) {
+            giveBack();
+            cb({ ok: false, code: 'logged_out', message: 'You were logged out before the payments were checked. Nothing was sold. Log in and try again.' });
+            return;
+          }
+          var shift = state.nextRev - startRev;
+          if (shift !== 0) {
+            for (var c = 0; c < built.changes.length; c++) {
+              built.changes[c].local_rev += shift;
+              built.changes[c].payload.localRev += shift;
+            }
+            built.nextRev += shift;
+          }
+          receipt.cashierName = session.name;
+          commitBuilt(built, null);
+          cb({ ok: true, receipt: receipt, payment: payments[0], payments: payments, paidCents: paid });
+          return;
+        }
+        var code = codes[index];
+        call('POST', 'payment_inbox_claim', {
+          code: code,
+          sale_id: receipt.saleId,
+          sale_number: receipt.saleNumber,
+          amount_cents: amounts[index],
+          require_message: true,
+          accept_amount: false
+        }, function (error, body, status) {
+          if (error) {
+            tillSelling = false;
+            giveBack();
+            cb(severalRefusal(error, body, status, code, total));
+            return;
+          }
+          var payment = body && body.payment && typeof body.payment === 'object' ? tillPayment(body.payment) : null;
+          if (!body || body.success !== true || !payment || payment.code !== code) {
+            // The answer cannot be read: this code may or may not be held for the sale - it is given back with the others.
+            tillSelling = false;
+            used.push(code);
+            giveBack();
+            cb({ ok: false, code: 'server', message: 'The shop server sent an answer this till cannot read. Nothing was sold. Try again.' });
+            return;
+          }
+          used.push(code);
+          payments.push(payment);
+          claim(index + 1);
+        });
+      }
+      tillSelling = true;
+      claim(0);
+    }
+
+    /** What the shop said no to about one of several codes, in the till's words. */
+    function severalRefusal(error, body, status, code, totalCents) {
+      var reason = body && typeof body.reason === 'string' ? body.reason : '';
+      if (reason === 'not_received') {
+        return { ok: false, code: 'not_received', message: 'No M-Pesa payment with the code ' + code + ' has reached the shop yet. Check the code, or tap the payments in the list.' };
+      }
+      if (reason === 'amount_differs' || reason === 'amount_unknown') {
+        return { ok: false, code: 'stale', message: 'The payment ' + code + ' is not for the amount the list showed. Refresh the list and tap the payments again.' };
+      }
+      return tillSaleRefusal(error, body, status, totalCents);
     }
 
     /** What the shop said no to, in the till's words. */
@@ -2943,6 +3106,8 @@
       TILL_AUTO_MINUTES: TILL_AUTO_MINUTES,
       archiveTillPayment: archiveTillPayment,
       mpesaCode: mpesaCode,
+      mpesaCodes: mpesaCodes,
+      TILL_MAX_PAYMENTS: TILL_MAX_PAYMENTS,
       refundBlock: refundBlock,
       loadSaleForRefund: loadSaleForRefund,
       quoteRefund: function (source, choices) { return options.sale.quoteRefund(source, choices); },
