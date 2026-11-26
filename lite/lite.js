@@ -865,7 +865,12 @@
         say('till-pay-message', error.code === 'offline' ? 'warn' : 'bad', error.message);
         return;
       }
-      if (core.mpesaCode(el('till-code').value) === p.code) { el('till-code').value = ''; }
+      var picked = core.mpesaCodes(el('till-code').value);
+      if (picked && picked.indexOf(p.code) >= 0) {
+        var left = [];
+        for (var j = 0; j < picked.length; j++) { if (picked[j] !== p.code) { left.push(picked[j]); } }
+        el('till-code').value = left.join(', ');
+      }
       var kept = [];
       for (var i = 0; i < (tillList.payments || []).length; i++) { if (tillList.payments[i].code !== p.code) { kept.push(tillList.payments[i]); } }
       tillList.payments = kept;
@@ -874,12 +879,72 @@
     });
   }
 
+  /** The amounts of the listed payments, by code (for a sale paid with two or more of them). */
+  function tillAmounts() {
+    var amounts = {};
+    for (var i = 0; i < (tillList.payments || []).length; i++) {
+      var p = tillList.payments[i];
+      if (p.amountCents !== null) { amounts[p.code] = p.amountCents; }
+    }
+    return amounts;
+  }
+
+  /**
+   * A tap on a payment. One of exactly the sale total is the customer's whole payment: it alone is picked (a tap on it when
+   * it is the only one picked leaves it out again). Any other is a part: it is added to the parts picked, or left out again.
+   */
+  function tapTillPayment(p, total) {
+    var picked = core.mpesaCodes(el('till-code').value) || [];
+    var next = [];
+    var i;
+    if (p.amountCents !== null && p.amountCents === total) {
+      if (!(picked.length === 1 && picked[0] === p.code)) { next = [p.code]; }
+    } else if (picked.indexOf(p.code) >= 0) {
+      for (i = 0; i < picked.length; i++) { if (picked[i] !== p.code) { next.push(picked[i]); } }
+    } else {
+      var amounts = tillAmounts();
+      for (i = 0; i < picked.length; i++) { if (amounts[picked[i]] !== total) { next.push(picked[i]); } }
+      next.push(p.code);
+      if (next.length > core.TILL_MAX_PAYMENTS) {
+        say('sell-message', 'warn', 'One sale can be paid with at most ' + core.TILL_MAX_PAYMENTS + ' M-Pesa payments.');
+        return;
+      }
+    }
+    el('till-code').value = next.join(', ');
+    say('sell-message', '', '');
+    drawTillList();
+  }
+
+  /** What the picked payments add up to against the sale (when two or more are picked, or one of another amount). */
+  function tillPickedLine(picked, total) {
+    if (picked.length === 0) { return null; }
+    var amounts = tillAmounts();
+    if (picked.length === 1 && amounts[picked[0]] === total) { return null; }
+    var missing = [];
+    var parts = [];
+    var paid = 0;
+    for (var i = 0; i < picked.length; i++) {
+      if (amounts[picked[i]] === undefined) { missing.push(picked[i]); } else { parts.push(money(amounts[picked[i]])); paid += amounts[picked[i]]; }
+    }
+    var line;
+    if (missing.length > 0) {
+      line = make('div', 'notice bad', 'Picked ' + picked.length + ': the amount of ' + missing.join(', ') + ' is not in the list.');
+    } else {
+      var sum = parts.join(' + ') + (parts.length > 1 ? ' = ' + money(paid) : '') + ' of ' + money(total);
+      if (paid < total) { line = make('div', 'notice bad', 'Picked: ' + sum + '. ' + money(total - paid) + ' still owed: tap the customer\'s other payment.'); }
+      else if (paid > total) { line = make('div', 'notice warn', 'Picked: ' + sum + '. ' + money(paid - total) + ' more than the sale: give it back in cash.'); }
+      else { line = make('div', 'notice ok', 'Picked: ' + sum + '. Paid in full: Complete Sale.'); }
+    }
+    line.id = 'till-picked';
+    return line;
+  }
+
   function drawTillList() {
     var list = el('till-pay-list');
     list.innerHTML = '';
     if (tillList.payments === null) { list.appendChild(make('p', 'muted', 'Loading the payments...')); return; }
     var total = ui.cart.length > 0 ? totals().total : 0;
-    var picked = core.mpesaCode(el('till-code').value);
+    var picked = core.mpesaCodes(el('till-code').value) || [];
     var fit = core.tillMatches(tillList.payments, total, Date.now());
     if (total <= 0) {
       list.appendChild(make('p', 'muted', 'Add items to the sale: the payment of its total shows here.'));
@@ -891,22 +956,21 @@
       list.appendChild(make('p', 'muted', 'This payment of ' + money(total) + ' arrived more than ' + core.TILL_AUTO_MINUTES + ' minutes ago, so it may be an earlier customer\'s. If it is this customer\'s, tap it, then Complete Sale.'));
     }
     var shown = fit.matches.slice();
-    if (fit.others.length > 0 && tillList.showOthers) { shown = shown.concat(fit.others); }
+    // a payment picked as a part (another amount) stays in sight while the other amounts are hidden
+    for (var o = 0; o < fit.others.length; o++) {
+      if (tillList.showOthers || picked.indexOf(fit.others[o].code) >= 0) { shown.push(fit.others[o]); }
+    }
     for (var i = 0; i < shown.length; i++) {
       if (i === fit.matches.length) { list.appendChild(make('p', 'muted', 'Payments of other amounts:')); }
       (function (p) {
-        var row = make('button', 'ticket' + (p.code === picked ? ' on' : ''));
+        var row = make('button', 'ticket' + (picked.indexOf(p.code) >= 0 ? ' on' : ''));
         row.type = 'button';
         row.appendChild(make('span', 'amt', p.amountCents === null ? '?' : money(p.amountCents)));
         row.appendChild(make('div', 'subject', p.payerName || 'M-Pesa payment'));
         var meta = make('div', 'meta', [p.code, p.paidAtText || (p.receivedAt ? timeText(p.receivedAt) : '')].join(' \u00b7 '));
         if (p.amountCents !== null && p.amountCents === total) { meta.appendChild(document.createTextNode(' \u00b7 ')); meta.appendChild(make('span', 'fits', 'the sale total')); }
         row.appendChild(meta);
-        row.onclick = function () {
-          el('till-code').value = p.code;
-          say('sell-message', '', '');
-          drawTillList();
-        };
+        row.onclick = function () { tapTillPayment(p, total); };
         var wrap = make('div', 'swipewrap');
         wrap.appendChild(make('span', 'swipeback', 'Archive'));
         wrap.appendChild(row);
@@ -917,8 +981,10 @@
         list.appendChild(wrap);
       }(shown[i]));
     }
+    var pickedLine = tillPickedLine(picked, total);
+    if (pickedLine) { list.appendChild(pickedLine); }
     if (fit.others.length > 0) {
-      var more = make('button', 'secondary small', tillList.showOthers ? 'Hide the payments of other amounts' : 'Customer paid a different amount? Show the other payments (' + fit.others.length + ')');
+      var more = make('button', 'secondary small', tillList.showOthers ? 'Hide the payments of other amounts' : 'Paid a different amount, or in two or more payments? Show the other payments (' + fit.others.length + ')');
       more.type = 'button';
       more.id = 'till-pay-others';
       more.onclick = function () { tillList.showOthers = !tillList.showOthers; drawTillList(); };
@@ -934,16 +1000,17 @@
     renderCart();
     setText('complete-button', 'Checking the payment...');
     say('sell-message', '', '');
-    core.sellTill({ cart: cart, saleType: ui.saleType, discountCents: t.discount, code: el('till-code').value, acceptAmount: acceptAmount }, function (result) {
+    core.sellTill({ cart: cart, saleType: ui.saleType, discountCents: t.discount, code: el('till-code').value, acceptAmount: acceptAmount, amounts: tillAmounts() }, function (result) {
       ui.starting = false;
       setText('complete-button', completeLabel());
       renderCart();
       if (result.ok) {
-        var extra = result.payment.amountCents !== null && result.payment.amountCents > result.receipt.totalCents ? result.payment.amountCents - result.receipt.totalCents : 0;
+        var paidAll = result.paidCents;
+        var extra = paidAll !== null && paidAll !== undefined && paidAll > result.receipt.totalCents ? paidAll - result.receipt.totalCents : 0;
         resetSale();
         ui.receiptId = result.receipt.saleId;
         showReceipt(result.receipt);
-        if (extra > 0) { el('receipt-box').insertBefore(make('div', 'notice ok', 'The customer paid ' + money(result.payment.amountCents) + '. Give back ' + money(extra) + ' in cash.'), el('receipt-box').firstChild); }
+        if (extra > 0) { el('receipt-box').insertBefore(make('div', 'notice ok', 'The customer paid ' + money(paidAll) + '. Give back ' + money(extra) + ' in cash.'), el('receipt-box').firstChild); }
         renderAll();
         core.flush(function (error) {
           ui.lastSyncProblem = error ? error.message : '';
@@ -954,7 +1021,8 @@
         return;
       }
       if (result.code === 'amount_differs') {
-        if (window.confirm('The customer paid ' + money(result.paidCents) + ' for a sale of ' + money(result.totalCents) + '.\nGive back ' + money(result.paidCents - result.totalCents) + ' in cash and complete the sale?')) {
+        var paidWords = result.payments > 1 ? 'The customer\'s ' + result.payments + ' payments add up to ' : 'The customer paid ';
+        if (window.confirm(paidWords + money(result.paidCents) + ' for a sale of ' + money(result.totalCents) + '.\nGive back ' + money(result.paidCents - result.totalCents) + ' in cash and complete the sale?')) {
           completeTillSale(t, cart, true);
         }
         return;
@@ -966,7 +1034,7 @@
         return;
       }
       say('sell-message', result.code === 'offline' || result.code === 'not_received' || result.code === 'busy' ? 'warn' : 'bad', result.message);
-      if (result.code === 'used' || result.code === 'not_received') { loadTillList(); }
+      if (result.code === 'used' || result.code === 'not_received' || result.code === 'stale' || result.code === 'not_listed') { loadTillList(); }
     });
   }
 
