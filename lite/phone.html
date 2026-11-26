@@ -108,7 +108,15 @@
 
       <div class="card">
         <h2>On an Android phone</h2>
-        <p class="muted">Passing messages on from an Android phone will be part of the NexaPOS app. It is not ready yet.</p>
+        <p>The NexaPOS app passes the messages on by itself - no shortcut to make. It needs NexaPOS 1.0.95 or later.</p>
+        <ol>
+          <li>Install NexaPOS on this phone: open <a href="https://nexapos.cc/#get-started">nexapos.cc</a> and download it for Android.</li>
+          <li>Tap <b>Copy key</b> above.</li>
+          <li>Open NexaPOS. On a phone that only gets the M-Pesa messages, tap <b>This phone only passes on M-Pesa messages</b> on its first screen. (On a phone that is already a till of your shop: <b>Settings &gt; M-Pesa Till Phone &gt; M-Pesa messages from this phone</b>.)</li>
+          <li>Paste the key and tap <b>Turn on</b>. When Android asks, allow NexaPOS to receive text messages.</li>
+          <li>If Android says <b>Restricted setting</b> (or does not ask at all): tap <b>Open App info</b> in NexaPOS, then the three dots at the top right &gt; <b>Allow restricted settings</b>, then <b>Permissions &gt; SMS &gt; Allow</b>. Go back and tap <b>Turn on</b> again.</li>
+        </ol>
+        <p class="muted">Only messages from MPESA and banks that mention Ksh, KES or Confirmed leave the phone - never a message from a person's number. It works with NexaPOS closed; without internet the messages wait and go later.</p>
       </div>
 
       <p class="muted">You can go back and forth between Shortcuts and this page: this phone remembers the key for 2 hours, then forgets it. Close this page when you have finished.</p>
